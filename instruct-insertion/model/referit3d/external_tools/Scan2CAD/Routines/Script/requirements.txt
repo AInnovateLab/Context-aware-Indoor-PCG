@@ -1,0 +1,5 @@
+numpy
+numpy-quaternion
+plyfile
+pybind11
+PyWavefront
