@@ -12,6 +12,7 @@ Extended with the following:
 import os
 import sys
 
+import ipdb
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -65,7 +66,9 @@ class _PointnetSAModuleBase(nn.Module):
         )
 
         for i in range(len(self.groupers)):
+            # ipdb.set_trace()
             new_features = self.groupers[i](xyz, new_xyz, features)  # (B, C, npoint, nsample)
+            # ipdb.set_trace()
             new_features = self.mlps[i](new_features)  # (B, mlp[-1], npoint, nsample)
             new_features = F.max_pool2d(
                 new_features, kernel_size=[1, new_features.size(3)]
