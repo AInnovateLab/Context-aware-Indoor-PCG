@@ -85,85 +85,32 @@ def single_epoch_train(
         out_feats, CLASS_LOGITS, LANG_LOGITS = MVT3DVG.first_stage_forward(batch, epoch)
 
         # NOTE - This is the point_e part
-        model_config = config["model"]
-        dataset_config = config["dataset"]
-        opt_config = config["optimizer"]
-        sched_config = config["lr_sched"]
-        max_epoches = config["max_epoches"]
-        name = model_config["name"]
-
         # TODO - Fix sample
         # construct sampler
-        train_sampler = DistributedSampler(train_set)
-        train_dl = torch.utils.data.DataLoader(
-            train_set,
-            batch_size=model_config["batch_size"],
-            num_workers=args.num_workers,
-            persistent_workers=True,
-            sampler=train_sampler,
-            pin_memory=True,
-            drop_last=True,
-        )
-
-        # construct learning rate scheduler
-        max_steps = max_epoches * len(train_dl)
-        if sched_config["type"] == "linear":
-            sched = get_linear_scheduler(
-                opt,
-                start_epoch=0,
-                end_epoch=max_steps,
-                start_lr=opt_config["lr"],
-                end_lr=sched_config["min_lr"],
-            )
-        else:
-            assert False, "sched type not support"
-
-        # TODO - Do we need aux_channels?
-        aux_channels = [] if "3channel" in model_config["name"] else ["R", "G", "B"]
-        sampler = PointCloudSampler(
-            device=device,
-            models=[base_model],
-            diffusions=[base_diffusion],
-            num_points=[model_config["num_points"]],
-            aux_channels=aux_channels,
-            guidance_scale=[3.0],
-            use_karras=[True],
-            karras_steps=[64],
-            sigma_min=[model_config["sigma_min"]],
-            sigma_max=[model_config["sigma_max"]],
-            s_churn=[3],
-            model_kwargs_key_filter=[args.cond],
-        )
 
         # train diffusion
         step = 0
-        train_sampler.set_epoch(epoch)
-        for batch in train_dl:
-            cur_lr = sched.get_last_lr()[0]
-            point_e.train()  # train mode
-            opt.zero_grad()
-            reals = batch["pointcloud"]
-            reals = reals.to(device)
+        point_e.train()  # train mode
+        reals = batch["pointcloud"]
+        reals = reals.to(device)
 
-            cond = batch["desc"]
-            # TODO - Here we add the tensor from MVT3DVG to point_e
-            losses = sampler.loss_texts(reals, cond, reals.shape[0])
-            losses.backward()
-            opt.step()
-            sched.step()
+        cond = batch["desc"]
+        # TODO - Here we add the tensor from MVT3DVG to point_e
+        losses = sampler.loss_texts(reals, cond, reals.shape[0])
+        losses.backward()
 
-            # NOTE - logger and model saving, this need to be reconsider
-            # if env.is_master() and step % config["echo_every"] == 0:
-            #     logger.info(
-            #         f"Epoch: {epoch}, step: {step}, lr:{cur_lr:.6f}, losses: {losses.item():g}"
-            #     )
-            #     writer.add_scalar("losses", losses.item(), global_step=step)
+        # NOTE - logger and model saving, this need to be reconsider
+        # if env.is_master() and step % config["echo_every"] == 0:
+        #     logger.info(
+        #         f"Epoch: {epoch}, step: {step}, lr:{cur_lr:.6f}, losses: {losses.item():g}"
+        #     )
+        #     writer.add_scalar("losses", losses.item(), global_step=step)
 
-            # if config["evaluate_every"] > 0 and step > 0 and step % config["evaluate_every"] == 0:
-            #     test(step)
-            # if env.is_master() and step > 0 and step % config["save_every"] == 0:
-            #     save()
-            step += 1
+        # if config["evaluate_every"] > 0 and step > 0 and step % config["evaluate_every"] == 0:
+        #     test(step)
+        # if env.is_master() and step > 0 and step % config["save_every"] == 0:
+        #     save()
+        step += 1
 
         # TODO - Redesign the loss function, should we put them together?
         # continue training MVT3DVG

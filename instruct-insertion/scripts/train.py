@@ -194,9 +194,41 @@ if __name__ == "__main__":
     # else:
     #     raise ValueError("Invalid optimizer type")
 
+    param_list.append({"params": point_e.parameters(), "lr": args.init_lr})
     optimizer = optim.Adam(param_list, lr=args.init_lr)  # init_lr = 1e-4
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer, [40, 50, 60, 70, 80, 90], gamma=0.65
+    # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+    #     optimizer, [40, 50, 60, 70, 80, 90], gamma=0.65
+    # )
+
+    model_config = config["model"]
+    dataset_config = config["dataset"]
+    sched_config = config["lr_sched"]
+    max_epoches = config["max_epoches"]
+    name = model_config["name"]
+
+    max_steps = max_epoches * len(train_dl)
+    sched = get_linear_scheduler(
+        optimizer,
+        start_epoch=0,
+        end_epoch=max_steps,
+        start_lr=opt_config["lr"],
+        end_lr=sched_config["min_lr"],
+    )
+    # TODO - Do we need aux_channels?
+    aux_channels = [] if "3channel" in model_config["name"] else ["R", "G", "B"]
+    sampler = PointCloudSampler(
+        device=device,
+        models=[base_model],
+        diffusions=[base_diffusion],
+        num_points=[model_config["num_points"]],
+        aux_channels=aux_channels,
+        guidance_scale=[3.0],
+        use_karras=[True],
+        karras_steps=[64],
+        sigma_min=[model_config["sigma_min"]],
+        sigma_max=[model_config["sigma_max"]],
+        s_churn=[3],
+        model_kwargs_key_filter=[args.cond],
     )
 
     start_training_epoch = 1
