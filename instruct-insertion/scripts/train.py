@@ -126,43 +126,75 @@ if __name__ == "__main__":
     gpu_num = len(args.gpu.strip(",").split(","))
 
     if args.model == "referIt3DNet_transformer":
-        model = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
+        mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
     else:
         assert False
-
     if gpu_num > 1:
-        model = nn.DataParallel(model)
-
-    model = model.to(device)
-    print(model)
+        mvt3dvg = nn.DataParallel(mvt3dvg)
+    mvt3dvg = mvt3dvg.to(device)
+    print(mvt3dvg)
 
     # <1>
     if gpu_num > 1:
         param_list = [
-            {"params": model.module.language_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": model.module.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": model.module.object_encoder.parameters(), "lr": args.init_lr},
-            {"params": model.module.obj_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": model.module.box_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": model.module.language_clf.parameters(), "lr": args.init_lr},
-            {"params": model.module.object_language_clf.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.module.language_encoder.parameters(), "lr": args.init_lr * 0.1},
+            {"params": mvt3dvg.module.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
+            {"params": mvt3dvg.module.object_encoder.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.module.obj_feature_mapping.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.module.box_feature_mapping.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.module.language_clf.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.module.object_language_clf.parameters(), "lr": args.init_lr},
         ]
         if not args.label_lang_sup:
-            param_list.append({"params": model.module.obj_clf.parameters(), "lr": args.init_lr})
+            param_list.append({"params": mvt3dvg.module.obj_clf.parameters(), "lr": args.init_lr})
     else:
         param_list = [
-            {"params": model.language_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": model.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": model.object_encoder.parameters(), "lr": args.init_lr},
-            {"params": model.obj_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": model.box_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": model.language_clf.parameters(), "lr": args.init_lr},
-            {"params": model.object_language_clf.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
+            {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
+            {"params": mvt3dvg.object_encoder.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.obj_feature_mapping.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.language_clf.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.object_language_clf.parameters(), "lr": args.init_lr},
         ]
         if not args.label_lang_sup:
-            param_list.append({"params": model.obj_clf.parameters(), "lr": args.init_lr})
+            param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
 
-    optimizer = optim.Adam(param_list, lr=args.init_lr)
+    # FIXME - Should we combine two model into one?
+    config = load_config(open(args.config))
+
+    # construct model
+    point_e = model_from_config(MODEL_CONFIGS[name], device)
+    point_e.to(device)
+
+    # for multicard training
+    point_e = DDP(point_e, device_ids=[env.local_rank], broadcast_buffers=False)
+
+    # construct diffusion
+    point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[name])
+
+    # construct optimizer for point_e
+    # FIXME - we should have only one optimizer, so parameters should be reassigned
+    # if opt_config["type"] == "adamw":
+    #         opt = optim.AdamW(
+    #         point_e.parameters(),
+    #         lr=opt_config["lr"], # lr = 1e-4
+    #         betas=tuple(opt_config["betas"]), # [0.95, 0.999]
+    #         eps=opt_config["eps"], 1e-6
+    #         weight_decay=opt_config["weight_decay"], # 1e-3
+    #     )
+    # elif opt_config["type"] == "sgd":
+    #     opt = optim.SGD(
+    #         point_e.parameters(),
+    #         lr=opt_config["lr"],
+    #         momentum=opt_config.get("momentum", 0.0),
+    #         nesterov=opt_config.get("nesterov", False),
+    #         weight_decay=opt_config.get("weight_decay", 0.0),
+    #     )
+    # else:
+    #     raise ValueError("Invalid optimizer type")
+
+    optimizer = optim.Adam(param_list, lr=args.init_lr)  # init_lr = 1e-4
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer, [40, 50, 60, 70, 80, 90], gamma=0.65
     )
@@ -176,7 +208,7 @@ if __name__ == "__main__":
     if args.resume_path:
         warnings.warn("Resuming assumes that the BEST per-val model is loaded!")
         # perhaps best_test_acc, best_test_epoch, best_test_epoch =  unpickle...
-        loaded_epoch = load_state_dicts(args.resume_path, map_location=device, model=model)
+        loaded_epoch = load_state_dicts(args.resume_path, map_location=device, model=mvt3dvg)
         print("Loaded a model stopped at epoch: {}.".format(loaded_epoch))
         if not args.fine_tune:
             print("Loaded a model that we do NOT plan to fine-tune.")
@@ -193,7 +225,7 @@ if __name__ == "__main__":
         else:
             print("Parameters that do not allow gradients to be back-propped:")
             ft_everything = True
-            for name, param in model.named_parameters():
+            for name, param in mvt3dvg.named_parameters():
                 if not param.requires_grad:
                     print(name)
                     exist = False
@@ -216,7 +248,9 @@ if __name__ == "__main__":
                 # Train:
                 tic = time.time()
                 train_meters = single_epoch_train(
-                    model,
+                    mvt3dvg,
+                    point_e,
+                    config,
                     data_loaders["train"],
                     criteria,
                     optimizer,
@@ -232,7 +266,7 @@ if __name__ == "__main__":
                 # Evaluate:
                 tic = time.time()
                 test_meters = evaluate_on_dataset(
-                    model,
+                    mvt3dvg,
                     data_loaders["test"],
                     criteria,
                     device,
@@ -253,7 +287,7 @@ if __name__ == "__main__":
                 save_state_dicts(
                     osp.join(args.checkpoint_dir, "last_model.pth"),
                     epoch,
-                    model=model,
+                    model=mvt3dvg,
                     optimizer=optimizer,
                     lr_scheduler=lr_scheduler,
                 )
@@ -266,7 +300,7 @@ if __name__ == "__main__":
                     save_state_dicts(
                         osp.join(args.checkpoint_dir, "best_model.pth"),
                         epoch,
-                        model=model,
+                        model=mvt3dvg,
                         optimizer=optimizer,
                         lr_scheduler=lr_scheduler,
                     )
@@ -302,7 +336,7 @@ if __name__ == "__main__":
 
     elif args.mode == "evaluate":
         meters = evaluate_on_dataset(
-            model, data_loaders["test"], criteria, device, pad_idx, args=args, tokenizer=tokenizer
+            mvt3dvg, data_loaders["test"], criteria, device, pad_idx, args=args, tokenizer=tokenizer
         )
         print("Reference-Accuracy: {:.4f}".format(meters["test_referential_acc"]))
         print("Object-Clf-Accuracy: {:.4f}".format(meters["test_object_cls_acc"]))
@@ -310,7 +344,7 @@ if __name__ == "__main__":
 
         out_file = osp.join(args.checkpoint_dir, "test_result.txt")
         res = analyze_predictions(
-            model,
+            mvt3dvg,
             data_loaders["test"].dataset,
             class_to_idx,
             pad_idx,
