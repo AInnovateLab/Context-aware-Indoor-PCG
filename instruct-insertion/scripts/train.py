@@ -160,7 +160,6 @@ if __name__ == "__main__":
         if not args.label_lang_sup:
             param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
 
-    # FIXME - Should we combine two model into one?
     config = load_config(open(args.config))
 
     # construct model
@@ -174,7 +173,7 @@ if __name__ == "__main__":
     point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[name])
 
     # construct optimizer for point_e
-    # FIXME - we should have only one optimizer, so parameters should be reassigned
+    # NOTE - we should have only one optimizer, this is abandoned
     # if opt_config["type"] == "adamw":
     #         opt = optim.AdamW(
     #         point_e.parameters(),
@@ -196,6 +195,8 @@ if __name__ == "__main__":
 
     param_list.append({"params": point_e.parameters(), "lr": args.init_lr})
     optimizer = optim.Adam(param_list, lr=args.init_lr)  # init_lr = 1e-4
+
+    # NOTE - This scheduler was abandoned, but not sure which is better
     # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
     #     optimizer, [40, 50, 60, 70, 80, 90], gamma=0.65
     # )
@@ -205,21 +206,22 @@ if __name__ == "__main__":
     sched_config = config["lr_sched"]
     max_epoches = config["max_epoches"]
     name = model_config["name"]
+    opt_config = config["optimizer"]
 
     max_steps = max_epoches * len(train_dl)
-    sched = get_linear_scheduler(
+    lr_scheduler = get_linear_scheduler(
         optimizer,
         start_epoch=0,
         end_epoch=max_steps,
         start_lr=opt_config["lr"],
         end_lr=sched_config["min_lr"],
     )
-    # TODO - Do we need aux_channels?
+
     aux_channels = [] if "3channel" in model_config["name"] else ["R", "G", "B"]
     sampler = PointCloudSampler(
         device=device,
-        models=[base_model],
-        diffusions=[base_diffusion],
+        models=[point_e],
+        diffusions=[point_e_diffusion],
         num_points=[model_config["num_points"]],
         aux_channels=aux_channels,
         guidance_scale=[3.0],
@@ -237,6 +239,7 @@ if __name__ == "__main__":
     last_test_acc = -1
     last_test_epoch = -1
 
+    # TODO - Fix Resume
     if args.resume_path:
         warnings.warn("Resuming assumes that the BEST per-val model is loaded!")
         # perhaps best_test_acc, best_test_epoch, best_test_epoch =  unpickle...
@@ -282,6 +285,7 @@ if __name__ == "__main__":
                 train_meters = single_epoch_train(
                     mvt3dvg,
                     point_e,
+                    sampler,
                     config,
                     data_loaders["train"],
                     criteria,
@@ -295,6 +299,7 @@ if __name__ == "__main__":
                 toc = time.time()
                 timings["train"] = (toc - tic) / 60
 
+                # TODO - Fix Evaluate
                 # Evaluate:
                 tic = time.time()
                 test_meters = evaluate_on_dataset(
@@ -316,6 +321,7 @@ if __name__ == "__main__":
 
                 lr_scheduler.step()
 
+                # TODO - Fix Save
                 save_state_dicts(
                     osp.join(args.checkpoint_dir, "last_model.pth"),
                     epoch,
@@ -324,6 +330,7 @@ if __name__ == "__main__":
                     lr_scheduler=lr_scheduler,
                 )
 
+                # TODO - Fix Log
                 if best_test_acc < eval_acc:
                     logger.info(colored("Test accuracy, improved @epoch {}".format(epoch), "green"))
                     best_test_acc = eval_acc

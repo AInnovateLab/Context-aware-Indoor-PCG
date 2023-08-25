@@ -256,6 +256,7 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
 
     def forward(
         self,
+        out_feats: torch.Tensor,
         x: torch.Tensor,
         t: torch.Tensor,
         images: Optional[Iterable[Optional[ImageType]]] = None,
@@ -263,6 +264,7 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         embeddings: Optional[Iterable[Optional[torch.Tensor]]] = None,
     ):
         """
+        :param out_feats: an [B, self.view_number, -1, self.inner_dim] tensor.
         :param x: an [N x C x T] tensor.
         :param t: an [N] tensor.
         :param images: a batch of images to condition on.
@@ -274,8 +276,9 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
 
         t_embed = self.time_embed(timestep_embedding(t, self.backbone.width))
         # TODO - Add position vector into clip_out to supervise
-        # add and linear
         clip_out = self.clip(batch_size=len(x), images=images, texts=texts, embeddings=embeddings)
+        out_feats = out_feats.reshape_as(clip_out)
+        clip_out = clip_out + out_feats
         assert len(clip_out.shape) == 2 and clip_out.shape[0] == x.shape[0]
 
         if self.training:

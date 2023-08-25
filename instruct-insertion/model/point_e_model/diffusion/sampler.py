@@ -106,10 +106,10 @@ class PointCloudSampler:
         ts = np.random.choice(np.arange(1, self.diffusions[0].betas.shape[0]), batch_size)
         return torch.tensor(ts, device=self.device)
 
-    def loss_texts(self, reals, cond, batch_size):
+    def loss_texts(self, out_feats, reals, cond, batch_size):
         t = self.uniform_sample_t(batch_size)
         output = self.diffusions[0].training_losses(
-            self.models[0], reals.permute(0, 2, 1), t, model_kwargs=dict(texts=cond)
+            self.models[0], out_feats, reals.permute(0, 2, 1), t, model_kwargs=dict(texts=cond)
         )
         #         set_trace()
         return output["loss"].mean()

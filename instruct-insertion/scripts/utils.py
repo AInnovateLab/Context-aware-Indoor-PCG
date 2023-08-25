@@ -1,4 +1,5 @@
 import argparse
+import copy
 
 import numpy as np
 import pandas as pd
@@ -33,6 +34,7 @@ def make_batch_keys(args, extras=None):
 def single_epoch_train(
     MVT3DVG,
     point_e,
+    sampler,
     config,
     data_loader,
     criteria,
@@ -64,6 +66,8 @@ def single_epoch_train(
 
     # Set the model in training mode
     MVT3DVG.train()
+    point_e.train()
+
     np.random.seed()  # call this to change the sampling of the point-clouds
     batch_keys = make_batch_keys(args)
     for batch in tqdm.tqdm(data_loader):
@@ -72,9 +76,6 @@ def single_epoch_train(
             if isinstance(batch[k], list):
                 continue
             batch[k] = batch[k].to(device)
-
-        # if args.object_encoder == 'pnet':
-        #     batch['objects'] = batch['objects'].permute(0, 1, 3, 2)
 
         lang_tokens = tokenizer(batch["tokens"], return_tensors="pt", padding=True)
         for name in lang_tokens.data:
@@ -85,18 +86,18 @@ def single_epoch_train(
         out_feats, CLASS_LOGITS, LANG_LOGITS = MVT3DVG.first_stage_forward(batch, epoch)
 
         # NOTE - This is the point_e part
-        # TODO - Fix sample
-        # construct sampler
-
         # train diffusion
         step = 0
-        point_e.train()  # train mode
         reals = batch["pointcloud"]
         reals = reals.to(device)
-
         cond = batch["desc"]
+
+        # TODO - Here we need to reshape the tensor from MVT3DVG
+        mvt_feats = copy.deepcopy(out_feats)
+        mvt_feats = mvt_feats.to(device)
+
         # TODO - Here we add the tensor from MVT3DVG to point_e
-        losses = sampler.loss_texts(reals, cond, reals.shape[0])
+        losses = sampler.loss_texts(mvt_feats, reals, cond, reals.shape[0])
         losses.backward()
 
         # NOTE - logger and model saving, this need to be reconsider
