@@ -2,23 +2,22 @@ import argparse
 import math
 from collections import defaultdict
 
-import ipdb
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
 
-from . import DGCNN
-from .in_out.vocabulary import Vocabulary
 from .utils import get_siamese_features, my_get_siamese_features
 
 try:
     from . import PointNetPP
 except ImportError:
+    import warnings
+
+    warnings.warn(f"PointNetPP not found when importing {__file__}.")
     PointNetPP = None
 import time
 
-from easydict import EasyDict
 from referit3d.models import MLP
 from referit3d.models.point_trans import PointTransformer
 from transformers import (
@@ -101,6 +100,8 @@ class ReferIt3DNet_transformer(nn.Module):
 
         # ADD Point BERT
         if args.point_trans:
+            from easydict import EasyDict
+
             print("[Model]: Use Point Transformer Encoder") if args.rank == 0 else None
             config = EasyDict(
                 {
