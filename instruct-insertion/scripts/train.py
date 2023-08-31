@@ -12,6 +12,7 @@ import tqdm
 
 sys.path.append(f"{osp.dirname(__file__)}/..")
 
+from data.referit3d.datasets import make_data_loaders
 from model.referit3d.analysis.deepnet_predictions import analyze_predictions
 from model.referit3d.in_out.arguments import parse_arguments
 from model.referit3d.in_out.neural_net_oriented import (
@@ -20,14 +21,18 @@ from model.referit3d.in_out.neural_net_oriented import (
     load_scan_related_data,
     trim_scans_per_referit3d_data,
 )
-from model.referit3d.in_out.pt_datasets.listening_dataset import make_data_loaders
-from model.referit3d.models.referit3d_net import ReferIt3DNet_transformer
-from model.referit3d.models.referit3d_net_utils import evaluate_on_dataset, single_epoch_train
-from model.referit3d.models.utils import load_state_dicts, save_state_dicts
-from model.referit3d.utils import create_logger, seed_training_code, set_gpu_to_zero_position
-from model.referit3d.utils.tf_visualizer import Visualizer
+from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
+from model.referit3d_model.utils import (
+    create_logger,
+    load_state_dicts,
+    save_state_dicts,
+    seed_training_code,
+    set_gpu_to_zero_position,
+)
+from model.referit3d_model.utils.tf_visualizer import Visualizer
 from termcolor import colored
 from torch import optim
+from train_utils import evaluate_on_dataset, single_epoch_train
 from transformers import BertModel, BertTokenizer
 
 """Trains Karras et al. (2022) diffusion models."""
@@ -40,17 +45,16 @@ import random
 import numpy as np
 import torch
 from ipdb import set_trace
-from model.point_e.configs.config import load_config, make_sample_density
-from model.point_e.dataset.shapenet import ShapeNetCore
-from model.point_e.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
-from model.point_e.diffusion.sampler import PointCloudSampler
-from model.point_e.evals.metrics import *
-from model.point_e.models.configs import MODEL_CONFIGS, model_from_config
-from model.point_e.models.download import load_checkpoint
-from model.point_e.models.util import n_params
-from model.point_e.util.common import get_linear_scheduler
-from model.point_e.util.plotting import plot_point_cloud
-from model.point_e.util.point_cloud import PointCloud
+from model.point_e_model.configs.config import load_config, make_sample_density
+from model.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
+from model.point_e_model.diffusion.sampler import PointCloudSampler
+from model.point_e_model.evals.metrics import *
+from model.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
+from model.point_e_model.models.download import load_checkpoint
+from model.point_e_model.util import n_params
+from model.point_e_model.util.common import get_linear_scheduler
+from model.point_e_model.util.plotting import plot_point_cloud
+from model.point_e_model.util.point_cloud import PointCloud
 from torch import multiprocessing as mp
 from torch import nn, optim
 from torch.nn.parallel import DistributedDataParallel as DDP

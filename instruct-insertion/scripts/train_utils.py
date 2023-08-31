@@ -1,97 +1,19 @@
-"""
-Utilities to analyze, train, test an 3d_listener.
-"""
-
-import pickle
-import time
+import argparse
+import copy
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.distributed as dist
 import torch.nn.functional as F
 import tqdm
-from pointnet2_ops import pointnet2_utils
-from torch.nn.utils import clip_grad_norm_
-
-from ..utils.evaluation import AverageMeter
-
-
-def get_world_size():
-    if not dist.is_available():
-        return 1
-    if not dist.is_initialized():
-        return 1
-    return dist.get_world_size()
-
-
-def all_gather(data):
-    """
-    Run all_gather on arbitrary picklable data (not necessarily tensors)
-    Args:
-        data: any picklable object
-    Returns:
-        list[data]: list of data gathered from each rank
-    """
-    world_size = get_world_size()
-    if world_size == 1:
-        return [data]
-
-    # serialized to a Tensor
-    origin_size = None
-    if not isinstance(data, torch.Tensor):
-        buffer = pickle.dumps(data)
-        storage = torch.ByteStorage.from_buffer(buffer)
-        tensor = torch.ByteTensor(storage).to("cuda")
-    else:
-        origin_size = data.size()
-        tensor = data.reshape(-1)
-
-    tensor_type = tensor.dtype
-
-    # obtain Tensor size of each rank
-    local_size = torch.LongTensor([tensor.numel()]).to("cuda")
-    size_list = [torch.LongTensor([0]).to("cuda") for _ in range(world_size)]
-    dist.all_gather(size_list, local_size)
-    size_list = [int(size.item()) for size in size_list]
-    max_size = max(size_list)
-
-    # receiving Tensor from all ranks
-    # we pad the tensor because torch all_gather does not support
-    # gathering tensors of different shapes
-    tensor_list = []
-    for _ in size_list:
-        tensor_list.append(torch.FloatTensor(size=(max_size,)).cuda().to(tensor_type))
-    if local_size != max_size:
-        padding = torch.FloatTensor(size=(max_size - local_size,)).cuda().to(tensor_type)
-        tensor = torch.cat((tensor, padding), dim=0)
-    dist.all_gather(tensor_list, tensor)
-
-    data_list = []
-    for size, tensor in zip(size_list, tensor_list):
-        if origin_size is None:
-            buffer = tensor.cpu().numpy().tobytes()[:size]
-            data_list.append(pickle.loads(buffer))
-        else:
-            buffer = tensor[:size]
-            data_list.append(buffer)
-
-    if origin_size is not None:
-        new_shape = [-1] + list(origin_size[1:])
-        resized_list = []
-        for data in data_list:
-            # suppose the difference of tensor size exist in first dimension
-            data = data.reshape(new_shape)
-            resized_list.append(data)
-
-        return resized_list
-    else:
-        return data_list
-
-
-def average_reduce_value(data):
-    data_list = all_gather(data)
-    return sum(data_list) / len(data_list)
+from model.point_e_model.configs.config import load_config
+from model.point_e_model.diffusion.sampler import PointCloudSampler
+from model.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
+from model.point_e_model.util.common import get_linear_scheduler
+from model.referit3d_model.utils.evaluation import AverageMeter
+from torch import optim
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
 
 
 def make_batch_keys(args, extras=None):
@@ -109,14 +31,19 @@ def make_batch_keys(args, extras=None):
     return batch_keys
 
 
-def recall_random_seed(args):
-    np.random.seed()
-    cur_seed = np.random.get_state()[1][0]
-    np.random.seed(cur_seed + args.rank)
-
-
 def single_epoch_train(
-    model, data_loader, criteria, optimizer, device, pad_idx, args, tokenizer=None, epoch=None
+    MVT3DVG,
+    point_e,
+    sampler,
+    config,
+    data_loader,
+    criteria,
+    optimizer,
+    device,
+    pad_idx,
+    args,
+    tokenizer=None,
+    epoch=None,
 ):
     """
     :param model:
@@ -138,26 +65,17 @@ def single_epoch_train(
     txt_acc_mtr = AverageMeter()
 
     # Set the model in training mode
-    model.train()
+    MVT3DVG.train()
+    point_e.train()
 
-    # np.random.seed()  # call this to change the sampling of the point-clouds
-    recall_random_seed(args)  # call this for seed in dist train
-
+    np.random.seed()  # call this to change the sampling of the point-clouds
     batch_keys = make_batch_keys(args)
-
-    if args.rank == 0:
-        progress_bar = tqdm.tqdm(data_loader)
-        bar_count = 0
-
-    for batch in data_loader:
+    for batch in tqdm.tqdm(data_loader):
         # Move data to gpu
         for k in batch_keys:
             if isinstance(batch[k], list):
                 continue
             batch[k] = batch[k].to(device)
-
-        # if args.object_encoder == 'pnet':
-        #     batch['objects'] = batch['objects'].permute(0, 1, 3, 2)
 
         lang_tokens = tokenizer(batch["tokens"], return_tensors="pt", padding=True)
         for name in lang_tokens.data:
@@ -165,84 +83,74 @@ def single_epoch_train(
         batch["lang_tokens"] = lang_tokens
 
         # Forward pass
-        if args.use_fps:
-            npoints = 1024
-            point_all = 1200
-            B, M, N, D = batch["objects"].shape
-            obj_data = batch["objects"].view(-1, N, D)
-            fps_idx = pointnet2_utils.furthest_point_sample(obj_data, point_all)
-            fps_idx = fps_idx[:, np.random.choice(point_all, npoints, False)]
-            sample_obj_data = (
-                pointnet2_utils.gather_operation(obj_data.transpose(1, 2).contiguous(), fps_idx)
-                .transpose(1, 2)
-                .contiguous()
-            )
-            batch["objects"] = sample_obj_data.view(B, M, npoints, D)
+        out_feats, CLASS_LOGITS, LANG_LOGITS = MVT3DVG.first_stage_forward(batch, epoch)
 
-        LOSS, CLASS_LOGITS, LANG_LOGITS, LOGITS = model(batch, epoch)
+        # NOTE - This is the point_e part
+        # train diffusion
+        step = 0
+        reals = batch["pointcloud"]
+        reals = reals.to(device)
+        cond = batch["desc"]
+
+        # TODO - Here we need to reshape the tensor from MVT3DVG
+        mvt_feats = copy.deepcopy(out_feats)
+        mvt_feats = mvt_feats.to(device)
+
+        # TODO - Here we add the tensor from MVT3DVG to point_e
+        losses = sampler.loss_texts(mvt_feats, reals, cond, reals.shape[0])
+        losses.backward()
+
+        # NOTE - logger and model saving, this need to be reconsider
+        # if env.is_master() and step % config["echo_every"] == 0:
+        #     logger.info(
+        #         f"Epoch: {epoch}, step: {step}, lr:{cur_lr:.6f}, losses: {losses.item():g}"
+        #     )
+        #     writer.add_scalar("losses", losses.item(), global_step=step)
+
+        # if config["evaluate_every"] > 0 and step > 0 and step % config["evaluate_every"] == 0:
+        #     test(step)
+        # if env.is_master() and step > 0 and step % config["save_every"] == 0:
+        #     save()
+        step += 1
+
+        # TODO - Redesign the loss function, should we put them together?
+        # continue training MVT3DVG
+        LOSS, LOGITS = MVT3DVG.second_stage_forward(out_feats, batch, CLASS_LOGITS, LANG_LOGITS)
         LOSS = LOSS.mean()
 
         res = {}
         res["logits"] = LOGITS
         res["class_logits"] = CLASS_LOGITS
         res["lang_logits"] = LANG_LOGITS
-
         # Backward
         optimizer.zero_grad()
         LOSS.backward()
-
-        # 增加grad clip试验多GPU训练
-        clip_grad_norm_(model.parameters(), 10)
-
         optimizer.step()
 
         # Update the loss and accuracy meters
         target = batch["target_pos"]
         batch_size = target.size(0)  # B x N_Objects
-
-        # 在多GPU训练时,每个GPU一个process,获取不同process的值,取平均.
-        avg_total_loss = average_reduce_value(LOSS.item())
-
-        total_loss_mtr.update(avg_total_loss, batch_size)
+        total_loss_mtr.update(LOSS.item(), batch_size)
 
         predictions = torch.argmax(res["logits"], dim=1)
         guessed_correctly = torch.mean((predictions == target).double()).item()
-
-        # mean
-        avg_ref_acc = average_reduce_value(guessed_correctly)
-
-        ref_acc_mtr.update(avg_ref_acc, batch_size)
+        ref_acc_mtr.update(guessed_correctly, batch_size)
 
         if args.obj_cls_alpha > 0:
             cls_b_acc, _ = cls_pred_stats(
                 res["class_logits"], batch["class_labels"], ignore_label=pad_idx
             )
-
-            # mean
-            avg_cls_acc = average_reduce_value(cls_b_acc)
-
-            cls_acc_mtr.update(avg_cls_acc, batch_size)
+            cls_acc_mtr.update(cls_b_acc, batch_size)
 
         if args.lang_cls_alpha > 0:
             batch_guess = torch.argmax(res["lang_logits"], -1)
-            txt_b_acc = torch.mean((batch_guess == batch["target_class"]).double()).item()
-
-            # mean
-            avg_txt_acc = average_reduce_value(txt_b_acc)
-
-            txt_acc_mtr.update(avg_txt_acc, batch_size)
-
-        if args.rank == 0:
-            bar_count += 1
-            if bar_count % 20 == 0:
-                progress_bar.update()
+            cls_b_acc = torch.mean((batch_guess == batch["target_class"]).double())
+            txt_acc_mtr.update(cls_b_acc, batch_size)
 
     metrics["train_total_loss"] = total_loss_mtr.avg
     metrics["train_referential_acc"] = ref_acc_mtr.avg
     metrics["train_object_cls_acc"] = cls_acc_mtr.avg
     metrics["train_txt_cls_acc"] = txt_acc_mtr.avg
-    if args.rank == 0:
-        progress_bar.close()
     return metrics
 
 
@@ -269,13 +177,7 @@ def evaluate_on_dataset(
 
     batch_keys = make_batch_keys(args)
 
-    if args.rank == 0:
-        progress_bar = tqdm.tqdm(data_loader)
-        bar_count = 0
-        print(args.rank, progress_bar)
-
-    for batch in data_loader:
-        # for batch in tqdm.tqdm(data_loader):
+    for batch in tqdm.tqdm(data_loader):
         # Move data to gpu
         for k in batch_keys:
             if isinstance(batch[k], list):
@@ -291,19 +193,6 @@ def evaluate_on_dataset(
         batch["lang_tokens"] = lang_tokens
 
         # Forward pass
-        if args.use_fps:
-            npoints = 1024
-            point_all = 1200
-            B, M, N, D = batch["objects"].shape
-            obj_data = batch["objects"].view(-1, N, D)
-            fps_idx = pointnet2_utils.furthest_point_sample(obj_data, point_all)
-            fps_idx = fps_idx[:, np.random.choice(point_all, npoints, False)]
-            sample_obj_data = (
-                pointnet2_utils.gather_operation(obj_data.transpose(1, 2).contiguous(), fps_idx)
-                .transpose(1, 2)
-                .contiguous()
-            )
-            batch["objects"] = sample_obj_data.view(B, M, npoints, D)
         LOSS, CLASS_LOGITS, LANG_LOGITS, LOGITS = model(batch)
         LOSS = LOSS.mean()
         res = {}
@@ -314,53 +203,27 @@ def evaluate_on_dataset(
         # Update the loss and accuracy meters
         target = batch["target_pos"]
         batch_size = target.size(0)  # B x N_Objects
-
-        # 在多GPU训练时,每个GPU一个process,获取不同process的值,取平均.
-        avg_total_loss = average_reduce_value(LOSS.item())
-
-        total_loss_mtr.update(avg_total_loss, batch_size)
+        total_loss_mtr.update(LOSS.item(), batch_size)
 
         predictions = torch.argmax(res["logits"], dim=1)
         guessed_correctly = torch.mean((predictions == target).double()).item()
-
-        # mean
-        avg_ref_acc = average_reduce_value(guessed_correctly)
-
-        ref_acc_mtr.update(avg_ref_acc, batch_size)
+        ref_acc_mtr.update(guessed_correctly, batch_size)
 
         if args.obj_cls_alpha > 0:
-            import ipdb
-
-            # ipdb.set_trace()
             cls_b_acc, _ = cls_pred_stats(
                 res["class_logits"], batch["class_labels"], ignore_label=pad_idx
             )
-
-            # mean
-            avg_cls_acc = average_reduce_value(cls_b_acc)
-
-            cls_acc_mtr.update(avg_cls_acc, batch_size)
+            cls_acc_mtr.update(cls_b_acc, batch_size)
 
         if args.lang_cls_alpha > 0:
             batch_guess = torch.argmax(res["lang_logits"], -1)
-            txt_b_acc = torch.mean((batch_guess == batch["target_class"]).double()).item()
-
-            # mean
-            avg_txt_acc = average_reduce_value(txt_b_acc)
-
-            txt_acc_mtr.update(avg_txt_acc, batch_size)
-
-        if args.rank == 0:
-            bar_count += 1
-            if bar_count % 5 == 0:
-                progress_bar.update()
+            cls_b_acc = torch.mean((batch_guess == batch["target_class"]).double())
+            txt_acc_mtr.update(cls_b_acc, batch_size)
 
     metrics["test_total_loss"] = total_loss_mtr.avg
     metrics["test_referential_acc"] = ref_acc_mtr.avg
     metrics["test_object_cls_acc"] = cls_acc_mtr.avg
     metrics["test_txt_cls_acc"] = txt_acc_mtr.avg
-    if args.rank == 0:
-        progress_bar.close()
     return metrics
 
 

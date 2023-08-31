@@ -1,9 +1,0 @@
-
-./pointnet2_ops_lib/.
-h5py
-
-hydra-core==0.11.3
-lmdb
-msgpack-numpy
-numpy
-pytorch-lightning==0.7.1

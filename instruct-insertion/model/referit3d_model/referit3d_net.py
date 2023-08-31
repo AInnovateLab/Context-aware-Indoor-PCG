@@ -7,7 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from .utils import get_siamese_features, my_get_siamese_features
+from .misc import get_siamese_features, my_get_siamese_features
 
 try:
     from . import PointNetPP
@@ -18,8 +18,6 @@ except ImportError:
     PointNetPP = None
 import time
 
-from referit3d.models import MLP
-from referit3d.models.point_trans import PointTransformer
 from transformers import (
     BertConfig,
     BertModel,
@@ -28,6 +26,64 @@ from transformers import (
     DistilBertModel,
     DistilBertTokenizer,
 )
+
+from ...openpoints.models.backbone.pointnext import PointNextEncoder
+
+
+class MLP(nn.Module):
+    """Multi-near perceptron. That is a k-layer deep network where each layer is a fully-connected layer, with
+    (optionally) batch-norm, a non-linearity and dropout. The last layer (output) is always a 'pure' linear function.
+    """
+
+    def __init__(
+        self,
+        in_feat_dims,
+        out_channels,
+        dropout_rate=0,
+        non_linearity=nn.ReLU(inplace=True),
+        closure=None,
+        norm_type=nn.BatchNorm1d,
+    ):
+        """Constructor
+        :param in_feat_dims: input feature dimensions
+        :param out_channels: list of ints describing each the number hidden/final neurons. The
+        :param b_norm: True/False, or list of booleans
+        :param dropout_rate: int, or list of int values
+        :param non_linearity: nn.Module
+        :param closure: optional nn.Module to use at the end of the MLP
+        """
+        super(MLP, self).__init__()
+
+        n_layers = len(out_channels)
+        dropout_rate = optional_repeat(dropout_rate, n_layers - 1)
+
+        previous_feat_dim = in_feat_dims
+        all_ops = []
+
+        for depth in range(len(out_channels)):
+            out_dim = out_channels[depth]
+            affine_op = nn.Linear(previous_feat_dim, out_dim, bias=True)
+            all_ops.append(affine_op)
+
+            if depth < len(out_channels) - 1:
+                if norm_type is not None:
+                    all_ops.append(norm_type(out_dim))
+
+                if non_linearity is not None:
+                    all_ops.append(non_linearity)
+
+                if dropout_rate[depth] > 0:
+                    all_ops.append(nn.Dropout(p=dropout_rate[depth]))
+
+            previous_feat_dim = out_dim
+
+        if closure is not None:
+            all_ops.append(closure)
+
+        self.net = nn.Sequential(*all_ops)
+
+    def __call__(self, x):
+        return self.net(x)
 
 
 class PointEncoder(nn.Module):
@@ -99,52 +155,23 @@ class ReferIt3DNet_transformer(nn.Module):
         self.obj_cls_alpha = args.obj_cls_alpha
 
         # ADD Point BERT
-        if args.point_trans:
-            from easydict import EasyDict
-
-            print("[Model]: Use Point Transformer Encoder") if args.rank == 0 else None
-            config = EasyDict(
-                {
-                    "trans_dim": 384,
-                    "depth": args.point_trans_depth,  # 12个block.
-                    "drop_path_rate": 0.1,
-                    "cls_dim": 40,
-                    "num_heads": 6,
-                    "group_size": 32,
-                    "num_group": 64,
-                    "encoder_dims": 256,
-                    "ckpt_path": args.point_tf_ckpt,
-                    "cls_head_finetune": args.cls_head_finetune,
-                }
-            )
-            self.object_encoder = PointTransformer(config=config)
-            if args.use_pretraining:
-                self.object_encoder.load_model_from_ckpt(config["ckpt_path"], args.rank)
-                print("[Model] load object ckpt")
-            self.point_trans = True
-
-            if args.cls_head_finetune:
-                # self.cls_head_finetune = nn.Sequential(
-                #     nn.Linear(config.trans_dim * 2, 768),
-                #     nn.ReLU(inplace=True),
-                #     nn.Dropout(0.5),
-                #     nn.Linear(768, 768)
-                # )
-                self.cls_head_finetune = PointEncoder(add_color=args.add_color)
-            else:
-                self.cls_head_finetune = nn.Identity()
-        else:
-            self.object_encoder = PointNetPP(
-                sa_n_points=[32, 16, None],
-                sa_n_samples=[[32], [32], [None]],
-                sa_radii=[[0.2], [0.4], [None]],
-                sa_mlps=[
-                    [[3, 64, 64, 128]],
-                    [[128, 128, 128, 256]],
-                    [[256, 256, self.object_dim, self.object_dim]],
-                ],
-            )
-            self.point_trans = False
+        self.obj_encoder = PointNextEncoder(
+            in_channels=7,
+            width=32,
+            blocks=[1, 3, 5, 3, 3],
+            strides=[1, 4, 4, 4, 4],
+            nsample=32,
+            radius=0.05,
+            aggr_args=dict(feature_type="dp_fj", reduction="max"),
+            group_args=dict(NAME="ballquery", normalize_dp=True),
+            sa_layers=1,
+            sa_use_res=False,
+            expansion=4,
+            conv_args=dict(order="onv-norm-act"),
+            act_args=dict(act="relu"),
+            norm_args=dict(norm="bn"),
+        )
+        self.point_trans = False
 
         self.language_encoder = BertModel.from_pretrained(self.bert_pretrain_path)
         self.language_encoder.encoder.layer = BertModel(BertConfig()).encoder.layer[
