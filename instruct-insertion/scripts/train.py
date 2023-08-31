@@ -13,27 +13,25 @@ import tqdm
 sys.path.append(f"{osp.dirname(__file__)}/..")
 
 from data.referit3d.datasets import make_data_loaders
-from model.referit3d.analysis.deepnet_predictions import analyze_predictions
-from model.referit3d.in_out.arguments import parse_arguments
-from model.referit3d.in_out.neural_net_oriented import (
+from data.referit3d.in_out.neural_net_oriented import (
     compute_auxiliary_data,
     load_referential_data,
     load_scan_related_data,
-    trim_scans_per_referit3d_data,
+    trim_scans_per_referit3d_data_,
 )
+from model.referit3d.analysis.deepnet_predictions import analyze_predictions
 from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
-from model.referit3d_model.utils import (
-    create_logger,
-    load_state_dicts,
-    save_state_dicts,
-    seed_training_code,
-    set_gpu_to_zero_position,
-)
+from model.referit3d_model.utils import load_state_dicts, save_state_dicts
 from model.referit3d_model.utils.tf_visualizer import Visualizer
+
+# FIXME: Remove below
 from termcolor import colored
 from torch import optim
 from train_utils import evaluate_on_dataset, single_epoch_train
 from transformers import BertModel, BertTokenizer
+from utils import seed_everything
+from utils.arguments import parse_arguments
+from utils.logger import init_logger
 
 """Trains Karras et al. (2022) diffusion models."""
 
@@ -101,16 +99,14 @@ if __name__ == "__main__":
     # Read the linguistic data of ReferIt3D
     referit_data = load_referential_data(args, args.referit3D_file, scans_split)
     # Prepare data & compute auxiliary meta-information.
-    all_scans_in_dict = trim_scans_per_referit3d_data(referit_data, all_scans_in_dict)
+    all_scans_in_dict = trim_scans_per_referit3d_data_(referit_data, all_scans_in_dict)
     mean_rgb, vocab = compute_auxiliary_data(referit_data, all_scans_in_dict, args)
     data_loaders = make_data_loaders(
         args, referit_data, vocab, class_to_idx, all_scans_in_dict, mean_rgb
     )
-    # Prepare GPU environment
-    set_gpu_to_zero_position(args.gpu)  # Pnet++ seems to work only at "gpu:0"
 
     device = torch.device("cuda")
-    seed_training_code(args.random_seed)
+    seed_everything(args.random_seed)
 
     # Losses:
     criteria = dict()
@@ -277,7 +273,7 @@ if __name__ == "__main__":
     # Training.
     if args.mode == "train":
         train_vis = Visualizer(args.tensorboard_dir)
-        logger = create_logger(args.log_dir)
+        logger = init_logger(log_dir=args.log_dir)
         logger.info("Starting the training. Good luck!")
 
         with tqdm.trange(start_training_epoch, args.max_train_epochs + 1, desc="epochs") as bar:
