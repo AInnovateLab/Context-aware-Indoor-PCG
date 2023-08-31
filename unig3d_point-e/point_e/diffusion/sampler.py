@@ -12,7 +12,6 @@ from point_e.util.point_cloud import PointCloud
 
 from .gaussian_diffusion import GaussianDiffusion
 from .k_diffusion import karras_sample_progressive #, karras_sample_progressive_sigma
-from ipdb import set_trace
 
 def mean_flat(tensor):
     """

@@ -3,7 +3,6 @@ import random
 import warnings
 from functools import partial
 
-import ipdb
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -175,7 +174,6 @@ class ListeningDataset(Dataset):
         if self.object_transformation is not None:
             samples = self.object_transformation(samples)
 
-        # ipdb.set_trace()
         if self.training and self.aug_with_pts:
             obj_nums, pt_nums = samples.shape[:2]
             rd_samples = []

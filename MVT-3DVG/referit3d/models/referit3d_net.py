@@ -2,7 +2,6 @@ import argparse
 import math
 from collections import defaultdict
 
-import ipdb
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -56,7 +55,6 @@ class PointEncoder(nn.Module):
             self.color_encoder = nn.Identity()
 
     def forward(self, pt_feats, pt_color=None):
-        # ipdb.set_trace()
         pt_feats = self.point_encoder(pt_feats)
 
         if self.add_color and pt_color is not None:
@@ -255,7 +253,6 @@ class ReferIt3DNet_transformer(nn.Module):
         # LOGITS (B,D=52) <--> batch['target_pos'] (B,)
         referential_loss = self.logit_loss(LOGITS, batch["target_pos"])
 
-        # ipdb.set_trace()
         # CLASS_LOGITS.transpose(2, 1) (B,C=525,D=52) <--> batch['class_labels'] (B,D)
         obj_clf_loss = self.class_logits_loss(CLASS_LOGITS.transpose(2, 1), batch["class_labels"])
 
@@ -295,13 +292,11 @@ class ReferIt3DNet_transformer(nn.Module):
         B, N, P = obj_points.shape[:3]
 
         ## obj_encoding
-        # ipdb.set_trace()
         if self.point_trans:
             B, N, K, D = obj_points.shape
             b_obj_points = obj_points.contiguous().view(-1, K, D)
             o_obj_features = self.object_encoder(b_obj_points)
 
-            # ipdb.set_trace()
             if self.cfg["add_color"]:
                 o_obj_features = self.cls_head_finetune(o_obj_features, b_obj_points)
             else:

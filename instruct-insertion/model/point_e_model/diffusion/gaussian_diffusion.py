@@ -7,7 +7,6 @@ from typing import Any, Dict, Iterable, Optional, Sequence, Union
 
 import numpy as np
 import torch as th
-from ipdb import set_trace
 
 
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):

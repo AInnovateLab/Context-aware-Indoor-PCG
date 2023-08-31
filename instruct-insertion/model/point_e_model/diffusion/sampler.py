@@ -8,7 +8,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ipdb import set_trace
 from point_e.util.point_cloud import PointCloud
 
 from .gaussian_diffusion import GaussianDiffusion

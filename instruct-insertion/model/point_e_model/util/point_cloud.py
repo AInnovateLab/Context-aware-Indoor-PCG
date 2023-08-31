@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import BinaryIO, Dict, List, Optional, Union
 
 import numpy as np
-from ipdb import set_trace
 
 from .ply_util import write_ply
 

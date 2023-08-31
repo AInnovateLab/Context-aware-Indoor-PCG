@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, List
 
-import ipdb
 import numpy as np
 import torch
 from pointnet2_ops import pointnet2_utils
@@ -254,7 +253,6 @@ class ThreeDObject(object):
                 "xyz": xyz[idx].copy(),
                 "color": color[idx].copy(),
             }
-            # ipdb.set_trace()
             # 多GPU并行训练不支持.cuda().
             # color_xyz = np.concatenate([xyz,color],axis=-1)
             # raw_data = torch.from_numpy(color_xyz[np.newaxis,:,:]).to(rank)

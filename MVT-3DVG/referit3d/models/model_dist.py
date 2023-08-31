@@ -329,9 +329,6 @@ def evaluate_on_dataset(
         ref_acc_mtr.update(avg_ref_acc, batch_size)
 
         if args.obj_cls_alpha > 0:
-            import ipdb
-
-            # ipdb.set_trace()
             cls_b_acc, _ = cls_pred_stats(
                 res["class_logits"], batch["class_labels"], ignore_label=pad_idx
             )

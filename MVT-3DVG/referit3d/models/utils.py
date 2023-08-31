@@ -1,6 +1,5 @@
 from unittest import mock
 
-import ipdb
 import torch
 import torch.nn.functional as F
 
@@ -30,7 +29,6 @@ def get_siamese_features(net, in_features, aggregator=None, batch_pnet=False):
     :param aggregator, (opt, None, torch.stack, or torch.cat)
     :return: B x N-objects x new-Feat-Dim
     """
-    # ipdb.set_trace()
     independent_dim = 1
     n_items = in_features.size(independent_dim)
     out_features = []

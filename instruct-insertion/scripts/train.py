@@ -65,7 +65,6 @@ from transformers import BertModel, BertTokenizer
 ###########################
 # isort: split
 
-from ipdb import set_trace
 from model.point_e_model.configs.config import load_config, make_sample_density
 from model.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
 from model.point_e_model.diffusion.sampler import PointCloudSampler
