@@ -6,7 +6,7 @@ from transformers import DistilBertModel, DistilBertTokenizer
 
 # the following will be shared on other datasets too if not, they should become part of the ListeningDataset
 # maybe make SegmentedScanDataset with only static functions and then inherit.
-from .utils.utils import (
+from .utils import (
     check_segmented_object_order,
     dataset_to_dataloader,
     decode_stimulus_string,

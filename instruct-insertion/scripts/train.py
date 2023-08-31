@@ -4,14 +4,23 @@
 import os.path as osp
 import sys
 import time
-import warnings
+from pprint import pformat
 
 import torch
 import torch.nn as nn
 import tqdm
+from termcolor import colored
+from torch import optim
 
 sys.path.append(f"{osp.dirname(__file__)}/..")
 
+
+#########################
+#                       #
+#    Import datasets    #
+#                       #
+#########################
+# isort: split
 from data.referit3d.datasets import make_data_loaders
 from data.referit3d.in_out.neural_net_oriented import (
     compute_auxiliary_data,
@@ -19,29 +28,43 @@ from data.referit3d.in_out.neural_net_oriented import (
     load_scan_related_data,
     trim_scans_per_referit3d_data_,
 )
-from model.referit3d.analysis.deepnet_predictions import analyze_predictions
+
+##################
+#                #
+#    Training    #
+#                #
+##################
+# isort: split
+from torch import multiprocessing as mp
+from torch import nn, optim
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils import data
+from torch.utils.data.distributed import DistributedSampler
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import datasets, transforms, utils
+from tqdm.auto import tqdm
+from train_utils import evaluate_on_dataset, single_epoch_train
+
+##################################
+#                                #
+#    Visual grounding related    #
+#                                #
+##################################
+# isort: split
+# from model.referit3d.analysis.deepnet_predictions import analyze_predictions
 from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from model.referit3d_model.utils import load_state_dicts, save_state_dicts
-from model.referit3d_model.utils.tf_visualizer import Visualizer
-
-# FIXME: Remove below
-from termcolor import colored
-from torch import optim
-from train_utils import evaluate_on_dataset, single_epoch_train
 from transformers import BertModel, BertTokenizer
-from utils import seed_everything
-from utils.arguments import parse_arguments
-from utils.logger import init_logger
 
-"""Trains Karras et al. (2022) diffusion models."""
+# from model.referit3d_model.utils.tf_visualizer import Visualizer
 
-import argparse
-import json
-import os
-import random
+###########################
+#                         #
+#    Diffusion related    #
+#                         #
+###########################
+# isort: split
 
-import numpy as np
-import torch
 from ipdb import set_trace
 from model.point_e_model.configs.config import load_config, make_sample_density
 from model.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
@@ -53,22 +76,23 @@ from model.point_e_model.util import n_params
 from model.point_e_model.util.common import get_linear_scheduler
 from model.point_e_model.util.plotting import plot_point_cloud
 from model.point_e_model.util.point_cloud import PointCloud
-from torch import multiprocessing as mp
-from torch import nn, optim
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils import data
-from torch.utils.data.distributed import DistributedSampler
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms, utils
-from tqdm.auto import tqdm
-from up.utils.env.dist_helper import env, finalize, setup_distributed
-from up.utils.general.log_helper import default_logger as logger
+
+#######################
+#                     #
+#    Miscellaneous    #
+#                     #
+#######################
+# isort: split
+from utils import seed_everything
+from utils.arguments import parse_arguments
+from utils.logger import get_logger, init_logger
 
 
 def log_train_test_information():
     """Helper logging function.
     Note uses "global" variables defined below.
     """
+    logger = get_logger()
     logger.info("Epoch:{}".format(epoch))
     for phase in ["train", "test"]:
         if phase == "train":
@@ -94,6 +118,8 @@ def log_train_test_information():
 if __name__ == "__main__":
     # Parse arguments
     args = parse_arguments()
+    logger = init_logger(log_dir=args.log_dir)
+
     # Read the scan related information
     all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(args.scannet_file)
     # Read the linguistic data of ReferIt3D
@@ -139,7 +165,7 @@ if __name__ == "__main__":
         param_list = [
             {"params": mvt3dvg.module.language_encoder.parameters(), "lr": args.init_lr * 0.1},
             {"params": mvt3dvg.module.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": mvt3dvg.module.object_encoder.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.module.obj_encoder.parameters(), "lr": args.init_lr},
             {"params": mvt3dvg.module.obj_feature_mapping.parameters(), "lr": args.init_lr},
             {"params": mvt3dvg.module.box_feature_mapping.parameters(), "lr": args.init_lr},
             {"params": mvt3dvg.module.language_clf.parameters(), "lr": args.init_lr},
@@ -151,7 +177,7 @@ if __name__ == "__main__":
         param_list = [
             {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
             {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": mvt3dvg.object_encoder.parameters(), "lr": args.init_lr},
+            {"params": mvt3dvg.obj_encoder.parameters(), "lr": args.init_lr},
             {"params": mvt3dvg.obj_feature_mapping.parameters(), "lr": args.init_lr},
             {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
             {"params": mvt3dvg.language_clf.parameters(), "lr": args.init_lr},
@@ -166,8 +192,8 @@ if __name__ == "__main__":
     point_e = model_from_config(MODEL_CONFIGS[name], device)
     point_e.to(device)
 
-    # for multicard training
-    point_e = DDP(point_e, device_ids=[env.local_rank], broadcast_buffers=False)
+    # TODO: for multicard training
+    # point_e = DDP(point_e, device_ids=[env.local_rank], broadcast_buffers=False)
 
     # construct diffusion
     point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[name])
@@ -208,11 +234,10 @@ if __name__ == "__main__":
     name = model_config["name"]
     opt_config = config["optimizer"]
 
-    max_steps = max_epoches * len(train_dl)
     lr_scheduler = get_linear_scheduler(
         optimizer,
         start_epoch=0,
-        end_epoch=max_steps,
+        end_epoch=max_epoches,
         start_lr=opt_config["lr"],
         end_lr=sched_config["min_lr"],
     )
@@ -241,39 +266,32 @@ if __name__ == "__main__":
 
     # TODO - Fix Resume
     if args.resume_path:
-        warnings.warn("Resuming assumes that the BEST per-val model is loaded!")
+        logger.warning("Resuming assumes that the BEST per-val model is loaded!")
         # perhaps best_test_acc, best_test_epoch, best_test_epoch =  unpickle...
         loaded_epoch = load_state_dicts(args.resume_path, map_location=device, model=mvt3dvg)
-        print("Loaded a model stopped at epoch: {}.".format(loaded_epoch))
+        logger.info("Loaded a model stopped at epoch: {}.".format(loaded_epoch))
         if not args.fine_tune:
-            print("Loaded a model that we do NOT plan to fine-tune.")
+            logger.info("Loaded a model that we do NOT plan to fine-tune.")
             load_state_dicts(args.resume_path, optimizer=optimizer, lr_scheduler=lr_scheduler)
             start_training_epoch = loaded_epoch + 1
             start_training_epoch = 0
             best_test_epoch = loaded_epoch
             best_test_acc = 0
-            print(
-                "Loaded model had {} test-accuracy in the corresponding dataset used when trained.".format(
-                    best_test_acc
-                )
-            )
         else:
-            print("Parameters that do not allow gradients to be back-propped:")
-            ft_everything = True
-            for name, param in mvt3dvg.named_parameters():
-                if not param.requires_grad:
-                    print(name)
-                    exist = False
-            if ft_everything:
-                print("None, all wil be fine-tuned")
+            no_ft_names = [
+                name for name, param in mvt3dvg.named_parameters() if not param.requires_grad
+            ]
+            if len(no_ft_names) > 0:
+                logger.info(
+                    "Parameters that do not allow gradients to be back-propped: "
+                    + pformat(no_ft_names)
+                )
             # if you fine-tune the previous epochs/accuracy are irrelevant.
             dummy = args.max_train_epochs + 1 - start_training_epoch
-            print("Ready to *fine-tune* the model for a max of {} epochs".format(dummy))
+            print(f"Ready to *fine-tune* the model for a max of {dummy} epochs")
 
     # Training.
     if args.mode == "train":
-        train_vis = Visualizer(args.tensorboard_dir)
-        logger = init_logger(log_dir=args.log_dir)
         logger.info("Starting the training. Good luck!")
 
         with tqdm.trange(start_training_epoch, args.max_train_epochs + 1, desc="epochs") as bar:
@@ -350,17 +368,6 @@ if __name__ == "__main__":
 
                 log_train_test_information()
                 train_meters.update(test_meters)
-                train_vis.log_scalars(
-                    {k: v for k, v in train_meters.items() if "_acc" in k},
-                    step=epoch,
-                    main_tag="acc",
-                )
-                train_vis.log_scalars(
-                    {k: v for k, v in train_meters.items() if "_loss" in k},
-                    step=epoch,
-                    main_tag="loss",
-                )
-
                 bar.refresh()
 
         with open(osp.join(args.checkpoint_dir, "final_result.txt"), "w") as f_out:
@@ -382,14 +389,5 @@ if __name__ == "__main__":
         print("Text-Clf-Accuracy {:.4f}:".format(meters["test_txt_cls_acc"]))
 
         out_file = osp.join(args.checkpoint_dir, "test_result.txt")
-        res = analyze_predictions(
-            mvt3dvg,
-            data_loaders["test"].dataset,
-            class_to_idx,
-            pad_idx,
-            device,
-            args,
-            out_file=out_file,
-            tokenizer=tokenizer,
-        )
-        print(res)
+        # TODO: change evaluation metrics
+        raise NotImplementedError

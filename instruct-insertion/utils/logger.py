@@ -1,34 +1,34 @@
 import logging
 import os.path as osp
 import sys
+from typing import TYPE_CHECKING
 
-from . import PathLike
+import coloredlogs
+
+if TYPE_CHECKING:
+    from . import PathLike
 
 
 def init_logger(
-    log_file: PathLike = None,
-    log_dir: PathLike = None,
     mod_name: str = None,
     level: int = logging.INFO,
-    std_out: bool = True,
+    log_file: "PathLike" = None,
+    log_dir: "PathLike" = None,
 ):
     assert (
         log_file is not None or log_dir is not None
     ), "Either log_file or log_dir must be provided."
     logger = logging.getLogger(mod_name)
-    logger.setLevel(level)
-    formatter = logging.Formatter("%(asctime)s - %(message)s")
+    fmt_str = "[%(levelname)s] %(asctime)s - %(message)s"
+    coloredlogs.install(level=level, logger=logger, fmt=fmt_str)
 
     # Add logging to file handler
-    filepath = log_file if log_file is not None else osp.join(log_dir, "log.txt")
-    file_handler = logging.FileHandler(filepath)
-    file_handler.setLevel(level)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    # Add stdout to also print statements there
-    if std_out:
-        logger.addHandler(logging.StreamHandler(sys.stdout))
+    if log_file is not None or log_dir is not None:
+        filepath = log_file if log_file is not None else osp.join(log_dir, "log.txt")
+        file_handler = logging.FileHandler(filepath)
+        file_handler.setLevel(level)
+        file_handler.setFormatter(logging.Formatter(fmt_str))
+        logger.addHandler(file_handler)
 
     return logger
 

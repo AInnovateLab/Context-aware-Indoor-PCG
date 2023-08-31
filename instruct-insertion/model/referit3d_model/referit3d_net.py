@@ -1,23 +1,11 @@
-import argparse
 import math
 from collections import defaultdict
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+from openpoints.models.backbone.pointnext import PointNextEncoder
 from torch import nn
-
-from .misc import get_siamese_features, my_get_siamese_features
-
-try:
-    from . import PointNetPP
-except ImportError:
-    import warnings
-
-    warnings.warn(f"PointNetPP not found when importing {__file__}.")
-    PointNetPP = None
-import time
-
 from transformers import (
     BertConfig,
     BertModel,
@@ -27,11 +15,29 @@ from transformers import (
     DistilBertTokenizer,
 )
 
-from ...openpoints.models.backbone.pointnext import PointNextEncoder
+from .utils import get_siamese_features, my_get_siamese_features
+
+
+def optional_repeat(value, times):
+    """helper function, to repeat a parameter's value many times
+    :param value: an single basic python type (int, float, boolean, string), or a list with length equals to times
+    :param times: int, how many times to repeat
+    :return: a list with length equal to times
+    """
+    if type(value) is not list:
+        value = [value]
+
+    if len(value) != 1 and len(value) != times:
+        raise ValueError("The value should be a singleton, or be a list with times length.")
+
+    if len(value) == times:
+        return value  # do nothing
+
+    return np.array(value).repeat(times).tolist()
 
 
 class MLP(nn.Module):
-    """Multi-near perceptron. That is a k-layer deep network where each layer is a fully-connected layer, with
+    """Multi-linear perceptron. That is a k-layer deep network where each layer is a fully-connected layer, with
     (optionally) batch-norm, a non-linearity and dropout. The last layer (output) is always a 'pure' linear function.
     """
 
@@ -82,42 +88,8 @@ class MLP(nn.Module):
 
         self.net = nn.Sequential(*all_ops)
 
-    def __call__(self, x):
+    def forward(self, x):
         return self.net(x)
-
-    def __init__(self, add_color):
-        super().__init__()
-
-        self.add_color = add_color
-        if add_color:
-            self.point_encoder = nn.Sequential(
-                nn.Linear(768, 512), nn.ReLU(inplace=True), nn.Dropout(0.5), nn.Linear(512, 512)
-            )
-            self.color_encoder = PointNetPP(
-                sa_n_points=[32, 16, None],
-                sa_n_samples=[[32], [32], [None]],
-                sa_radii=[[0.2], [0.4], [None]],
-                sa_mlps=[[[3, 64, 64, 128]], [[128, 128, 128, 256]], [[256, 256, 256, 256]]],
-            )
-            self.point_encoder2 = nn.Sequential(
-                nn.Linear(768, 768), nn.ReLU(inplace=True), nn.Dropout(0.5), nn.Linear(768, 768)
-            )
-        else:
-            self.point_encoder = nn.Sequential(
-                nn.Linear(768, 768), nn.ReLU(inplace=True), nn.Dropout(0.5), nn.Linear(768, 768)
-            )
-            self.color_encoder = nn.Identity()
-
-    def forward(self, pt_feats, pt_color=None):
-        # ipdb.set_trace()
-        pt_feats = self.point_encoder(pt_feats)
-
-        if self.add_color and pt_color is not None:
-            color_feats = self.color_encoder(pt_color.contiguous())
-            pt_feats = torch.cat([pt_feats, color_feats], dim=-1)
-            pt_feats = self.point_encoder2(pt_feats)
-
-        return pt_feats
 
 
 class ReferIt3DNet_transformer(nn.Module):
