@@ -85,8 +85,6 @@ class MLP(nn.Module):
     def __call__(self, x):
         return self.net(x)
 
-
-class PointEncoder(nn.Module):
     def __init__(self, add_color):
         super().__init__()
 
