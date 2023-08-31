@@ -120,9 +120,9 @@ if __name__ == "__main__":
     pool = mp.Pool(n_processes)
     chunks = int(n_items / n_processes)
 
-    all_scans: Dict[str, ScannetScan] = dict()
+    all_scans_dict: Dict[str, ScannetScan] = dict()
     for i, data in enumerate(pool.imap(scannet_loader, all_scan_ids, chunksize=chunks)):
-        all_scans[all_scan_ids[i]] = data
+        all_scans_dict[all_scan_ids[i]] = data
 
     pool.join()
     pool.close()
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     # Save data
     if args.verbose:
         print("Saving the results.")
-    all_scans = list(all_scans.values())
+    all_scans = list(all_scans_dict.values())
     save_dir = create_dir(osp.join(args.top_save_dir, tag))
     save_file = osp.join(save_dir, tag + ".pkl")
     pickle_data(save_file, scannet, all_scans)

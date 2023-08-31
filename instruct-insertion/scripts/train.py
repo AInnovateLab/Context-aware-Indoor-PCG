@@ -125,10 +125,8 @@ if __name__ == "__main__":
     referit_data = load_referential_data(args, args.referit3D_file, scans_split)
     # Prepare data & compute auxiliary meta-information.
     all_scans_in_dict = trim_scans_per_referit3d_data_(referit_data, all_scans_in_dict)
-    mean_rgb, vocab = compute_auxiliary_data(referit_data, all_scans_in_dict, args)
-    data_loaders = make_data_loaders(
-        args, referit_data, vocab, class_to_idx, all_scans_in_dict, mean_rgb
-    )
+    mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
+    data_loaders = make_data_loaders(args, referit_data, class_to_idx, all_scans_in_dict, mean_rgb)
 
     device = torch.device("cuda")
     seed_everything(args.random_seed)
@@ -154,13 +152,14 @@ if __name__ == "__main__":
         mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
     else:
         assert False
-    if gpu_num > 1:
-        mvt3dvg = nn.DataParallel(mvt3dvg)
+    # if gpu_num > 1:
+    #     mvt3dvg = nn.DataParallel(mvt3dvg)
     mvt3dvg = mvt3dvg.to(device)
     print(mvt3dvg)
 
     # <1>
     if gpu_num > 1:
+        raise DeprecationWarning
         param_list = [
             {"params": mvt3dvg.module.language_encoder.parameters(), "lr": args.init_lr * 0.1},
             {"params": mvt3dvg.module.refer_encoder.parameters(), "lr": args.init_lr * 0.1},

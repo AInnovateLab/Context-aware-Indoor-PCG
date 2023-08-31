@@ -30,7 +30,7 @@ class ThreeDObject(object):
         self.scan = scan
         self.object_id = object_id
         self.points = points
-        self.instance_label = instance_label
+        self._instance_label = instance_label
 
         self.axis_aligned_bbox = None
         self.is_axis_aligned_bbox_set = False

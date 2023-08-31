@@ -1,8 +1,11 @@
 from functools import partial
+from typing import Dict, Literal, Optional
 
 import numpy as np
-from torch.utils.data import Dataset
-from transformers import DistilBertModel, DistilBertTokenizer
+import pandas as pd
+from torch.utils.data import DataLoader, Dataset
+
+from .in_out.scannet_scan import ScannetScan, ThreeDObject
 
 # the following will be shared on other datasets too if not, they should become part of the ListeningDataset
 # maybe make SegmentedScanDataset with only static functions and then inherit.
@@ -10,10 +13,10 @@ from .utils import (
     check_segmented_object_order,
     dataset_to_dataloader,
     decode_stimulus_string,
+    infer_floor_z_coord,
     instance_labels_of_context,
     max_io_workers,
     mean_rgb_unit_norm_transform,
-    objects_bboxes,
     pad_samples,
     sample_scan_object,
 )
@@ -22,15 +25,15 @@ from .utils import (
 class ReferIt3DDataset(Dataset):
     def __init__(
         self,
-        references,
-        scans,
-        vocab,
-        max_seq_len,
-        points_per_object,
-        max_distractors,
-        class_to_idx=None,
+        references: pd.DataFrame,
+        scans: Dict[str, ScannetScan],
+        max_seq_len: int,
+        points_per_object: int,
+        max_distractors: int,
+        class_to_idx: Dict[str, int],
         object_transformation=None,
-        visualization=False,
+        height_append: bool = True,
+        visualization: bool = False,
     ):
         self.references = references
         self.scans = scans
@@ -39,6 +42,7 @@ class ReferIt3DDataset(Dataset):
         self.max_distractors = max_distractors
         self.max_context_size = self.max_distractors + 1  # to account for the target.
         self.class_to_idx = class_to_idx
+        self.height_append = height_append
         self.visualization = visualization
         self.object_transformation = object_transformation
         if not check_segmented_object_order(scans):
@@ -47,25 +51,17 @@ class ReferIt3DDataset(Dataset):
     def __len__(self):
         return len(self.references)
 
-    def get_reference_data(self, index):
-        ref = self.references.loc[index]
-        scan_id = ref["scan_id"]
+    def get_reference_data(self, index: int):
+        ref = self.references.iloc[index]
+        scan_id: str = ref["scan_id"]
         scan = self.scans[ref["scan_id"]]
-        target = scan.three_d_objects[ref["target_id"]]
-        # sega_update: 使用原始的token
-        # tokens = np.array(self.vocab.encode(ref['tokens'], self.max_seq_len), dtype=np.long)
-        ori_tokens = ref["tokens"]
-        tokens = " ".join(ori_tokens)
-        # tokens = self.vocab(sen).input_ids
-        # print(len(tokens))
-        # tokens = np.array(tokens)
-        # tokens = np.array([102]*(self.max_seq_len + 2 + self.max_context_size * 2))
-        # tokens[:min(self.max_seq_len + 2, len(emb))] = emb[:min(self.max_seq_len + 2, len(emb))]
-        is_nr3d = ref["dataset"] == "nr3d"
+        target: ThreeDObject = scan.three_d_objects[ref["target_id"]]
+        text: str = ref["utterance_generative"]
+        is_nr3d: bool = ref["dataset"] == "nr3d"
 
-        return scan, target, tokens, is_nr3d, scan_id
+        return scan, target, text, is_nr3d, scan_id
 
-    def prepare_distractors(self, scan, target):
+    def prepare_distractors(self, scan: ScannetScan, target: ThreeDObject):
         target_label = target.instance_label
 
         # First add all objects with the same instance-label as the target
@@ -74,9 +70,7 @@ class ReferIt3DDataset(Dataset):
         ]
 
         # Then all more objects up to max-number of distractors
-        already_included = {target_label}
-        clutter = [o for o in scan.three_d_objects if o.instance_label not in already_included]
-        np.random.shuffle(clutter)
+        clutter = [o for o in scan.three_d_objects if o.instance_label != target_label]
 
         distractors.extend(clutter)
         distractors = distractors[: self.max_distractors]
@@ -84,9 +78,9 @@ class ReferIt3DDataset(Dataset):
 
         return distractors
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
         res = dict()
-        scan, target, tokens, is_nr3d, scan_id = self.get_reference_data(index)
+        scan, target, text, is_nr3d, scan_id = self.get_reference_data(index)
         # Make a context of distractors
         context = self.prepare_distractors(scan, target)
 
@@ -95,21 +89,26 @@ class ReferIt3DDataset(Dataset):
         context.insert(target_pos, target)
 
         # sample point/color for them
-        samples = np.array([sample_scan_object(o, self.points_per_object) for o in context])
+        samples = np.array(
+            [sample_scan_object(o, self.points_per_object) for o in context]
+        )  # (# of objects, # of points, 6)
+        # 7 when we append height to the point cloud
+        if self.height_append:
+            floor_z = infer_floor_z_coord(scan)
+            height = samples[:, :, 2] - floor_z
+            samples = np.concatenate(
+                [samples, height[:, :, None]], axis=2
+            )  # (# of objects, # of points, 7)
 
         # mark their classes
-        # res['ori_labels'],
         res["class_labels"] = instance_labels_of_context(
             context, self.max_context_size, self.class_to_idx
         )
         res["scan_id"] = scan_id
-        box_info = np.zeros((self.max_context_size, 4))
-        box_info[: len(context), 0] = [o.get_bbox().cx for o in context]
-        box_info[: len(context), 1] = [o.get_bbox().cy for o in context]
-        box_info[: len(context), 2] = [o.get_bbox().cz for o in context]
-        box_info[: len(context), 3] = [o.get_bbox().volume() for o in context]
-        box_corners = np.zeros((self.max_context_size, 8, 3))
-        box_corners[: len(context)] = [o.get_bbox().corners for o in context]
+        # the center point of bbox in the scene coord system
+        box_center = np.array([o.get_bbox().center() for o in context])
+        box_z_len = np.array([o.get_bbox().lz for o in context])
+
         if self.object_transformation is not None:
             samples = self.object_transformation(samples)
 
@@ -119,7 +118,7 @@ class ReferIt3DDataset(Dataset):
         res["objects"] = pad_samples(samples, self.max_context_size)
 
         # Get a mask indicating which objects have the same instance-class as the target.
-        target_class_mask = np.zeros(self.max_context_size, dtype=np.bool)
+        target_class_mask = np.zeros(self.max_context_size, dtype=bool)
         target_class_mask[: len(context)] = [
             target.instance_label == o.instance_label for o in context
         ]
@@ -127,15 +126,14 @@ class ReferIt3DDataset(Dataset):
         res["target_class"] = self.class_to_idx[target.instance_label]
         res["target_pos"] = target_pos
         res["target_class_mask"] = target_class_mask
-        res["tokens"] = tokens
+        res["text"] = text
         res["is_nr3d"] = is_nr3d
-        res["box_info"] = box_info
-        res["box_corners"] = box_corners
+        res["box_center"] = box_center
+        res["box_z_len"] = box_z_len
 
         if self.visualization:
-            distrators_pos = np.zeros(
-                (6)
-            )  # 6 is the maximum context size we used in dataset collection
+            # 6 is the maximum context size we used in dataset collection
+            distrators_pos = np.zeros((6,))
             object_ids = np.zeros((self.max_context_size))
             j = 0
             for k, o in enumerate(context):
@@ -144,8 +142,8 @@ class ReferIt3DDataset(Dataset):
                     j += 1
             for k, o in enumerate(context):
                 object_ids[k] = o.object_id
-            res["utterance"] = self.references.loc[index]["utterance"]
-            res["stimulus_id"] = self.references.loc[index]["stimulus_id"]
+            res["utterance"] = self.references.iloc[index]["utterance"]
+            res["stimulus_id"] = self.references.iloc[index]["stimulus_id"]
             res["distrators_pos"] = distrators_pos
             res["object_ids"] = object_ids
             res["target_object_id"] = target.object_id
@@ -153,14 +151,20 @@ class ReferIt3DDataset(Dataset):
         return res
 
 
-def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb):
+def make_data_loaders(
+    args,
+    referit_data: pd.DataFrame,
+    class_to_idx: Dict[str, int],
+    scans: Dict[str, ScannetScan],
+    mean_rgb: np.ndarray,
+):
     n_workers = args.n_workers
     if n_workers == -1:
         n_workers = max_io_workers()
 
-    data_loaders = dict()
+    data_loaders: Dict[Literal["train", "test"], DataLoader] = dict()
     is_train = referit_data["is_train"]
-    splits = ["train", "test"]
+    splits = ("train", "test")
 
     object_transformation = partial(
         mean_rgb_unit_norm_transform, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
@@ -205,7 +209,6 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb):
         dataset = ReferIt3DDataset(
             references=d_set,
             scans=scans,
-            vocab=vocab,
             max_seq_len=args.max_seq_len,
             points_per_object=args.points_per_object,
             max_distractors=max_distractors,

@@ -1,17 +1,19 @@
 import os.path as osp
 import pathlib
 from ast import literal_eval
-from typing import Dict, List
+from typing import Dict, List, Literal, Set, Tuple
 
 import numpy as np
 import pandas as pd
-from data.utils import read_lines, unpickle_data
+from data.utils import PathLike, read_lines, unpickle_data
 
 from ..utils import decode_stimulus_string
 from .scannet_scan import ScannetScan
 
 
-def scannet_official_train_val(valid_views=None, verbose=True):
+def scannet_official_train_val(
+    valid_views=None, verbose=True
+) -> Dict[Literal["train", "test"], Set[str]]:
     """
     :param valid_views: None or list like ['00', '01']
     :return:
@@ -58,7 +60,9 @@ def mean_color(scan_ids: List[str], all_scans: Dict[str, ScannetScan]) -> np.nda
     return mean_rgb
 
 
-def load_referential_data(args, referit_csv, scans_split):
+def load_referential_data(
+    args, referit_csv: PathLike, scans_split: Dict[str, Set[str]]
+) -> pd.DataFrame:
     """
     :param args:
     :param referit_csv:
@@ -79,7 +83,7 @@ def load_referential_data(args, referit_csv, scans_split):
     referit_data = referit_data[
         ["tokens", "instance_type", "scan_id", "dataset", "target_id", "utterance", "stimulus_id"]
     ]
-    referit_data.tokens = referit_data["tokens"].apply(literal_eval)
+    referit_data.loc["tokens"] = referit_data["tokens"].apply(literal_eval)
 
     # Add the is_train data to the pandas data frame (needed in creating data loaders for the train and test)
     is_train = referit_data.scan_id.apply(lambda x: x in scans_split["train"])
@@ -126,8 +130,9 @@ def load_referential_data(args, referit_csv, scans_split):
     return referit_data
 
 
-def load_scan_related_data(preprocessed_scannet_file, verbose=True, add_pad=True):
+def load_scan_related_data(preprocessed_scannet_file: PathLike, verbose=True, add_pad=True):
     _, all_scans = unpickle_data(preprocessed_scannet_file)
+    all_scans: List[ScannetScan]
     if verbose:
         print("Loaded in RAM {} scans".format(len(all_scans)))
 
@@ -139,9 +144,9 @@ def load_scan_related_data(preprocessed_scannet_file, verbose=True, add_pad=True
             idx == np.arange(len(idx))
         )  # assert the list of objects-ids -is- the range(n_objects).
         # because we use this ordering when we sample objects from a scan.
-    all_scans = {scan.scan_id: scan for scan in all_scans}  # place scans in dictionary
+    all_scans_dict = {scan.scan_id: scan for scan in all_scans}  # place scans in dictionary
 
-    class_to_idx = {}
+    class_to_idx: Dict[str, int] = {}
     i = 0
     for el in sorted(instance_labels):
         class_to_idx[el] = i
@@ -156,10 +161,12 @@ def load_scan_related_data(preprocessed_scannet_file, verbose=True, add_pad=True
 
     scans_split = scannet_official_train_val()
 
-    return all_scans, scans_split, class_to_idx
+    return all_scans_dict, scans_split, class_to_idx
 
 
-def compute_auxiliary_data(referit_data: pd.DataFrame, all_scans: Dict[str, ScannetScan]):
+def compute_auxiliary_data(
+    referit_data: pd.DataFrame, all_scans: Dict[str, ScannetScan]
+) -> np.ndarray:
     """
     Given a train-split compute useful quantities like mean-rgb.
 

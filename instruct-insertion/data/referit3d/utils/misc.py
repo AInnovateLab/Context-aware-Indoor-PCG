@@ -1,12 +1,13 @@
 import multiprocessing as mp
 import warnings
-from typing import TYPE_CHECKING, Dict, List, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 from torch.utils.data import DataLoader
 
 if TYPE_CHECKING:
     from ..in_out.scannet_scan import ScannetScan
+    from ..in_out.three_d_object import ThreeDObject
 
 ############################
 #                          #
@@ -23,7 +24,9 @@ def max_io_workers():
     return max(mp.cpu_count() - 1, 1)
 
 
-def dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=False, seed=None):
+def dataset_to_dataloader(
+    dataset, split, batch_size, n_workers, pin_memory=False, seed=None
+) -> DataLoader:
     """
     :param dataset:
     :param split:
@@ -67,7 +70,9 @@ def dataset_to_dataloader(dataset, split, batch_size, n_workers, pin_memory=Fals
 ######################################
 
 
-def sample_scan_object(object, n_points, training=False, use_fps=False, rank=0):
+def sample_scan_object(
+    object: "ThreeDObject", n_points: int, training=False, use_fps=False, rank=0
+) -> np.ndarray:
     sample = object.sample(n_samples=n_points, training=training, use_fps=use_fps, rank=rank)
     return np.concatenate([sample["xyz"], sample["color"]], axis=1)
 
@@ -117,30 +122,29 @@ def objects_bboxes(context):
     return np.array(b_boxes).reshape((len(context), 6))
 
 
-def instance_labels_of_context(context, max_context_size, label_to_idx=None, add_padding=True):
+def instance_labels_of_context(
+    context: List[ThreeDObject],
+    max_context_size: int,
+    label_to_idx: Dict[str, int],
+    add_padding=True,
+):
     """
     :param context: a list of the objects
     :return:
     """
-    ori_instance_labels = [i.instance_label for i in context]
+    ori_instance_labels = [o.instance_label for o in context]
 
     if add_padding:
         n_pad = max_context_size - len(context)
         ori_instance_labels.extend(["pad"] * n_pad)
 
-    if label_to_idx is not None:
-        instance_labels = np.array([label_to_idx[x] for x in ori_instance_labels])
-
-    # ori_labels=[]
-    # for ori_label in ori_instance_labels:
-    #     ori_labels.append('[CLS] '+ori_label+' [SEP]')
-    # ori_instance_labels = ' '.join(ori_labels)
+    instance_labels = np.array([label_to_idx[x] for x in ori_instance_labels])
 
     return instance_labels
 
 
 def mean_rgb_unit_norm_transform(
-    segmented_objects, mean_rgb, unit_norm, epsilon_dist=10e-6, inplace=True
+    segmented_objects, mean_rgb, unit_norm, epsilon_dist=1e-6, inplace=True
 ):
     """
     :param segmented_objects: K x n_points x 6, K point-clouds with color.
@@ -167,6 +171,28 @@ def mean_rgb_unit_norm_transform(
         segmented_objects[:, :, :3] = xyz
 
     return segmented_objects
+
+
+def infer_floor_z_coord(scan: "ScannetScan") -> float:
+    """
+    Infer the z-coordinate of the floor. If the "floor" exists, the maximum
+    z-coordinate of the floor is returned. Otherwise, the minimum z-coordinate
+    of all the points in the scan is returned.
+
+    Args:
+        scan (ScannetScan): The scan to infer the floor z-coordinate from.
+
+    Returns:
+        float: The z-coordinate of the upper surface of the floor.
+    """
+    floor_zs = [
+        obj.get_bbox().extrema[5] for obj in scan.three_d_objects if obj.instance_label == "floor"
+    ]
+    if len(floor_zs) > 0:
+        return sum(floor_zs) / len(floor_zs)
+    else:
+        # no floor found
+        return scan.pc[:, 2].min()
 
 
 def check_numpy_to_torch(x):
