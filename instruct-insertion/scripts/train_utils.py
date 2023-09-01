@@ -1,6 +1,7 @@
 import copy
 from typing import Any, Dict
 
+import accelerate
 import evaluate
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ import torch
 import torch.nn.functional as F
 import tqdm
 from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
+from transformers import BatchEncoding
 
 
 def move_batch_to_device_(batch: Dict[str, Any], device):
@@ -16,6 +18,8 @@ def move_batch_to_device_(batch: Dict[str, Any], device):
             continue
         elif isinstance(batch[k], torch.Tensor):
             batch[k] = batch[k].to(device)
+        elif isinstance(batch[k], BatchEncoding):
+            batch[k] = batch[k].to(device)
         else:
             pass
 
@@ -23,17 +27,16 @@ def move_batch_to_device_(batch: Dict[str, Any], device):
 
 
 def single_epoch_train(
+    accelerator: accelerate.Accelerator,
     MVT3DVG: ReferIt3DNet_transformer,
     point_e,
     sampler,
     config,
     data_loader,
-    criteria,
     optimizer,
     device,
     pad_idx,
     args,
-    tokenizer=None,
     epoch=None,
 ):
     """
@@ -59,13 +62,8 @@ def single_epoch_train(
     MVT3DVG.train()
     point_e.train()
 
-    for batch in tqdm.tqdm(data_loader):
+    for batch in tqdm.tqdm(data_loader, disable=not accelerator.is_local_main_process):
         move_batch_to_device_(batch, device)
-
-        lang_tokens = tokenizer(batch["tokens"], return_tensors="pt", padding=True)
-        for name in lang_tokens.data:
-            lang_tokens.data[name] = lang_tokens.data[name].cuda()
-        batch["lang_tokens"] = lang_tokens
 
         # Forward pass
         out_feats, CLASS_LOGITS, LANG_LOGITS = MVT3DVG.first_stage_forward(batch, epoch)

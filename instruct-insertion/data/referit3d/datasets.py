@@ -3,7 +3,9 @@ from typing import Dict, Literal, Optional
 
 import numpy as np
 import pandas as pd
-from torch.utils.data import DataLoader, Dataset
+from accelerate import Accelerator, DistributedType
+from torch.utils.data import DataLoader, Dataset, default_collate
+from transformers import BatchEncoding, PreTrainedTokenizer
 
 from .in_out.scannet_scan import ScannetScan, ThreeDObject
 
@@ -30,6 +32,7 @@ class ReferIt3DDataset(Dataset):
         points_per_object: int,
         max_context_objects: int,
         class_to_idx: Dict[str, int],
+        tokenizer: PreTrainedTokenizer,
         object_transformation=None,
         height_append: bool = True,
     ):
@@ -39,6 +42,7 @@ class ReferIt3DDataset(Dataset):
         self.points_per_object = points_per_object
         self.max_context_objects = max_context_objects
         self.class_to_idx = class_to_idx
+        self.tokenizer = tokenizer
         self.height_append = height_append
         self.object_transformation = object_transformation
         assert check_segmented_object_order(scans), "Objects are not ordered by object id"
@@ -109,7 +113,11 @@ class ReferIt3DDataset(Dataset):
             )
 
         res["scan_id"] = scan_id
+        # text
         res["text"] = text
+        res["tokens"]: BatchEncoding = self.tokenizer(
+            text, max_length=self.max_seq_len, truncation=True, padding=False
+        )
 
         # context
         # NOTE: take care of padding, so that a batch has same # of objects across scans.
@@ -154,7 +162,9 @@ class ReferIt3DDataset(Dataset):
         Data format in batch:
         {
             "scan_id": List[str],
+            ---
             "text": List[str],
+            "tokens": BatchEncoding,    # see `custom_collate_fn` below for details
             ---
             "ctx_mask": BoolTensor, (B, # of context),
             "ctx_class": LongTensor, (B, # of context),
@@ -174,21 +184,39 @@ class ReferIt3DDataset(Dataset):
 
 def make_data_loaders(
     args,
+    accelerator: Accelerator,
     referit_data: pd.DataFrame,
     class_to_idx: Dict[str, int],
     scans: Dict[str, ScannetScan],
     mean_rgb: np.ndarray,
+    tokenizer: PreTrainedTokenizer,
 ):
-    n_workers = args.n_workers
-    if n_workers == -1:
-        n_workers = max_io_workers()
-
     data_loaders: Dict[Literal["train", "test"], DataLoader] = dict()
     is_train = referit_data["is_train"]
 
     object_transformation = partial(
         normalize_pc, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
     )
+
+    def custom_collate_fn(batch):
+        """
+        Hook for customizing the way datasets are merged.
+        """
+        batch = default_collate(batch)
+        if accelerator.mixed_precision == "fp8":
+            pad_to_multiple_of = 16
+        else:
+            pad_to_multiple_of = 8
+
+        batch["tokens"] = tokenizer.pad(
+            batch["tokens"],
+            padding="longest",
+            max_length=args.max_seq_len,
+            pad_to_multiple_of=pad_to_multiple_of,
+            return_attention_mask=True,
+            return_tensors="pt",
+        )
+        return batch
 
     for split in ("train", "test"):
         mask = is_train if split == "train" else ~is_train
@@ -206,8 +234,14 @@ def make_data_loaders(
             height_append=args.height_append,
         )
 
-        data_loaders[split] = dataset_to_dataloader(
-            dataset, split, args.batch_size, n_workers, seed=args.random_seed
+        data_loaders[split] = DataLoader(
+            dataset,
+            batch_size=args.batch_size,
+            num_workers=args.n_workers,
+            shuffle=split == "train",
+            pin_memory=True,
+            collate_fn=custom_collate_fn,
+            drop_last=True,
         )
 
     return data_loaders

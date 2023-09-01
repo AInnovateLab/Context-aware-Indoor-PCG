@@ -35,6 +35,8 @@ from data.referit3d.in_out.neural_net_oriented import (
 #                #
 ##################
 # isort: split
+from accelerate import Accelerator
+from accelerate.utils import ProjectConfiguration
 from torch import multiprocessing as mp
 from torch import nn, optim
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -42,8 +44,7 @@ from torch.utils import data
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import datasets, transforms, utils
-from tqdm.auto import tqdm
-from train_utils import evaluate_on_dataset, single_epoch_train
+from train_utils import single_epoch_train
 
 ##################################
 #                                #
@@ -54,7 +55,7 @@ from train_utils import evaluate_on_dataset, single_epoch_train
 # from model.referit3d.analysis.deepnet_predictions import analyze_predictions
 from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from model.referit3d_model.utils import load_state_dicts, save_state_dicts
-from transformers import BertModel, BertTokenizer
+from transformers import BatchEncoding, BertModel, BertTokenizer
 
 # from model.referit3d_model.utils.tf_visualizer import Visualizer
 
@@ -114,11 +115,26 @@ def log_train_test_information():
     logger.info("Best so far {:.3f} (@epoch {})".format(best_test_acc, best_test_epoch))
 
 
-if __name__ == "__main__":
+def main():
     # Parse arguments
     args = parse_arguments()
-    logger = init_logger(log_dir=args.log_dir)
+    # TODO: add log file
+    init_logger()
+    logger = get_logger(__name__)
+    acc_config = ProjectConfiguration(
+        project_dir=osp.join(args.project_top_dir, args.project_name),
+        logging_dir=osp.join(args.project_top_dir, "logs"),
+    )
+    accelerator = Accelerator(log_with="tensorboard", project_config=acc_config)
+    device = accelerator.device
+    seed_everything(args.random_seed)
+    tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
 
+    #######################
+    #                     #
+    #    Data pre-load    #
+    #                     #
+    #######################
     # Read the scan related information
     all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(args.scannet_file)
     # Read the linguistic data of ReferIt3D
@@ -128,70 +144,40 @@ if __name__ == "__main__":
     mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
     data_loaders = make_data_loaders(args, referit_data, class_to_idx, all_scans_in_dict, mean_rgb)
 
-    device = torch.device("cuda")
-    seed_everything(args.random_seed)
-
-    # Losses:
-    criteria = dict()
     # Prepare the Listener
     n_classes = len(class_to_idx) - 1  # -1 to ignore the <pad> class
     pad_idx = class_to_idx["pad"]
     # Object-type classification
-    class_name_list = []
-    for cate in class_to_idx:
-        class_name_list.append(cate)
+    class_name_list = list(class_to_idx.keys())
 
-    tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
-    class_name_tokens = tokenizer(class_name_list, return_tensors="pt", padding=True)
-    for name in class_name_tokens.data:
-        class_name_tokens.data[name] = class_name_tokens.data[name].cuda()
-
-    gpu_num = len(args.gpu.strip(",").split(","))
+    class_name_tokens: BatchEncoding = tokenizer(class_name_list, return_tensors="pt", padding=True)
+    class_name_tokens = class_name_tokens.to(device)
 
     if args.model == "referIt3DNet_transformer":
         mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
     else:
         assert False
-    # if gpu_num > 1:
-    #     mvt3dvg = nn.DataParallel(mvt3dvg)
     mvt3dvg = mvt3dvg.to(device)
     print(mvt3dvg)
 
-    # <1>
-    if gpu_num > 1:
-        raise DeprecationWarning
-        param_list = [
-            {"params": mvt3dvg.module.language_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": mvt3dvg.module.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": mvt3dvg.module.obj_encoder.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.module.obj_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.module.box_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.module.language_clf.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.module.object_language_clf.parameters(), "lr": args.init_lr},
-        ]
-        if not args.label_lang_sup:
-            param_list.append({"params": mvt3dvg.module.obj_clf.parameters(), "lr": args.init_lr})
-    else:
-        param_list = [
-            {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
-            {"params": mvt3dvg.obj_encoder.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.obj_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.language_clf.parameters(), "lr": args.init_lr},
-            {"params": mvt3dvg.object_language_clf.parameters(), "lr": args.init_lr},
-        ]
-        if not args.label_lang_sup:
-            param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
+    # model params
+    param_list = [
+        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
+        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
+        {"params": mvt3dvg.obj_encoder.parameters(), "lr": args.init_lr},
+        {"params": mvt3dvg.obj_feature_mapping.parameters(), "lr": args.init_lr},
+        {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
+        {"params": mvt3dvg.language_clf.parameters(), "lr": args.init_lr},
+        {"params": mvt3dvg.object_language_clf.parameters(), "lr": args.init_lr},
+    ]
+    if not args.label_lang_sup:
+        param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
 
     config = load_config(open(args.config))
 
     # construct model
     point_e = model_from_config(MODEL_CONFIGS[name], device)
     point_e.to(device)
-
-    # TODO: for multicard training
-    # point_e = DDP(point_e, device_ids=[env.local_rank], broadcast_buffers=False)
 
     # construct diffusion
     point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[name])
@@ -218,7 +204,7 @@ if __name__ == "__main__":
     #     raise ValueError("Invalid optimizer type")
 
     param_list.append({"params": point_e.parameters(), "lr": args.init_lr})
-    optimizer = optim.Adam(param_list, lr=args.init_lr)  # init_lr = 1e-4
+    optimizer = optim.AdamW(param_list, lr=args.init_lr)  # init_lr = 1e-4
 
     # NOTE - This scheduler was abandoned, but not sure which is better
     # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
@@ -240,6 +226,18 @@ if __name__ == "__main__":
         end_lr=sched_config["min_lr"],
     )
 
+    # adapt with `accelerate`
+    (
+        mvt3dvg,
+        point_e,
+        data_loaders["train"],
+        data_loaders["test"],
+        optimizer,
+        lr_scheduler,
+    ) = accelerator.prepare(
+        mvt3dvg, point_e, data_loaders["train"], data_loaders["test"], optimizer, lr_scheduler
+    )
+
     aux_channels = [] if "3channel" in model_config["name"] else ["R", "G", "B"]
     sampler = PointCloudSampler(
         device=device,
@@ -256,55 +254,37 @@ if __name__ == "__main__":
         model_kwargs_key_filter=[args.cond],
     )
 
-    start_training_epoch = 1
+    # Resume training
+    if args.resume_path:
+        accelerator.load_state(args.resume_path)
+
+    start_training_epoch = lr_scheduler.last_epoch + 1
     best_test_acc = -1
     best_test_epoch = -1
     last_test_acc = -1
     last_test_epoch = -1
 
-    # TODO - Fix Resume
-    if args.resume_path:
-        logger.warning("Resuming assumes that the BEST per-val model is loaded!")
-        # perhaps best_test_acc, best_test_epoch, best_test_epoch =  unpickle...
-        loaded_epoch = load_state_dicts(args.resume_path, map_location=device, model=mvt3dvg)
-        logger.info("Loaded a model stopped at epoch: {}.".format(loaded_epoch))
-        if not args.fine_tune:
-            logger.info("Loaded a model that we do NOT plan to fine-tune.")
-            load_state_dicts(args.resume_path, optimizer=optimizer, lr_scheduler=lr_scheduler)
-            start_training_epoch = loaded_epoch + 1
-            start_training_epoch = 0
-            best_test_epoch = loaded_epoch
-            best_test_acc = 0
-        else:
-            no_ft_names = [
-                name for name, param in mvt3dvg.named_parameters() if not param.requires_grad
-            ]
-            if len(no_ft_names) > 0:
-                logger.info(
-                    "Parameters that do not allow gradients to be back-propped: "
-                    + pformat(no_ft_names)
-                )
-            # if you fine-tune the previous epochs/accuracy are irrelevant.
-            dummy = args.max_train_epochs + 1 - start_training_epoch
-            print(f"Ready to *fine-tune* the model for a max of {dummy} epochs")
-
     # Training.
     if args.mode == "train":
         logger.info("Starting the training. Good luck!")
 
-        with tqdm.trange(start_training_epoch, args.max_train_epochs + 1, desc="epochs") as bar:
+        with tqdm.tqdm(
+            range(start_training_epoch, args.max_train_epochs + 1),
+            desc="epochs",
+            disable=not accelerator.is_local_main_process,
+        ) as bar:
             timings = dict()
             for epoch in bar:
                 print("cnt_lr", lr_scheduler.get_last_lr())
                 # Train:
                 tic = time.time()
                 train_meters = single_epoch_train(
+                    accelerator,
                     mvt3dvg,
                     point_e,
                     sampler,
                     config,
                     data_loaders["train"],
-                    criteria,
                     optimizer,
                     device,
                     pad_idx,
@@ -337,14 +317,10 @@ if __name__ == "__main__":
 
                 lr_scheduler.step()
 
-                # TODO - Fix Save
-                # save_state_dicts(
-                #     osp.join(args.checkpoint_dir, "last_model.pth"),
-                #     epoch,
-                #     model=mvt3dvg,
-                #     optimizer=optimizer,
-                #     lr_scheduler=lr_scheduler,
-                # )
+                # TODO - Also save the best model
+                accelerator.save_state(
+                    osp.join(args.project_top_dir, args.project_name, "checkpoints", "last_model")
+                )
 
                 # TODO - Fix Log
                 # if best_test_acc < eval_acc:
@@ -368,14 +344,6 @@ if __name__ == "__main__":
                 # train_meters.update(test_meters)
                 bar.refresh()
 
-        with open(osp.join(args.checkpoint_dir, "final_result.txt"), "w") as f_out:
-            f_out.write(
-                ("Best accuracy: {:.4f} (@epoch {})".format(best_test_acc, best_test_epoch))
-            )
-            f_out.write(
-                ("Last accuracy: {:.4f} (@epoch {})".format(last_test_acc, last_test_epoch))
-            )
-
         logger.info("Finished training successfully.")
 
     elif args.mode == "test":
@@ -389,3 +357,7 @@ if __name__ == "__main__":
         print("Text-Clf-Accuracy {:.4f}:".format(meters["test_txt_cls_acc"]))
 
         out_file = osp.join(args.checkpoint_dir, "test_result.txt")
+
+
+if __name__ == "__main__":
+    main()

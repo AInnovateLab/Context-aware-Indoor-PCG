@@ -17,16 +17,8 @@ if TYPE_CHECKING:
 ############################
 
 
-def max_io_workers():
-    """
-    Returns:
-        int: number of available cores - 1.
-    """
-    return max(mp.cpu_count() - 1, 1)
-
-
 def dataset_to_dataloader(
-    dataset, split, batch_size, n_workers, pin_memory=True, seed=None
+    dataset, split, batch_size, n_workers, pin_memory=True, collate_fn=None
 ) -> DataLoader:
     """
     :param dataset:
@@ -39,19 +31,13 @@ def dataset_to_dataloader(
     """
     shuffle = split == "train"
 
-    worker_init_fn = lambda x: np.random.seed(seed)
-    if split == "test":
-        if type(seed) is not int:
-            logger = get_logger()
-            logger.warning("Test split is not seeded in a deterministic manner.")
-
     data_loader = DataLoader(
         dataset,
         batch_size=batch_size,
         num_workers=n_workers,
         shuffle=shuffle,
         pin_memory=pin_memory,
-        worker_init_fn=worker_init_fn,
+        collate_fn=collate_fn,
     )
     return data_loader
 
