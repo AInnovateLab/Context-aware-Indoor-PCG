@@ -72,6 +72,7 @@ def create_dir(dir_path: PathLike):
     Creates a directory (or nested directories) if they don't exist.
     """
     os.makedirs(dir_path, exist_ok=True)
+    return dir_path
 
 
 def str2bool(v: Union[str, bool]):

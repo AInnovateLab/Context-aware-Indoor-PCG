@@ -127,8 +127,8 @@ if __name__ == "__main__":
     for i, data in enumerate(pool.imap(scannet_loader, all_scan_ids, chunksize=chunks)):
         all_scans_dict[all_scan_ids[i]] = data
 
-    pool.join()
     pool.close()
+    pool.join()
 
     if args.verbose:
         print(f"Loading raw data took {(time.time() - start_time) / 60:.4f} minutes.")
