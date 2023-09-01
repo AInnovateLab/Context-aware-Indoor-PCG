@@ -265,5 +265,4 @@ def parse_arguments(notebook_options=None):
 def apply_configs(args, config_dict):
     for k, v in config_dict.items():
         k = k.replace("-", "_")
-        v = v.replace("-", "_")
         setattr(args, k, v)
