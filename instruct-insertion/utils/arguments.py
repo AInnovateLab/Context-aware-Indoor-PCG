@@ -72,7 +72,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument(
         "--max-seq-len",
         type=int,
-        default=24,
+        default=64,
         help="utterances with more tokens than this they will be ignored.",
     )
     parser.add_argument(

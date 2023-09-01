@@ -317,55 +317,55 @@ if __name__ == "__main__":
 
                 # TODO - Fix Evaluate
                 # Evaluate:
-                tic = time.time()
-                test_meters = evaluate_on_dataset(
-                    mvt3dvg,
-                    data_loaders["test"],
-                    criteria,
-                    device,
-                    pad_idx,
-                    args=args,
-                    tokenizer=tokenizer,
-                )
-                toc = time.time()
-                timings["test"] = (toc - tic) / 60
+                # tic = time.time()
+                # test_meters = evaluate_on_dataset(
+                #     mvt3dvg,
+                #     data_loaders["test"],
+                #     criteria,
+                #     device,
+                #     pad_idx,
+                #     args=args,
+                #     tokenizer=tokenizer,
+                # )
+                # toc = time.time()
+                # timings["test"] = (toc - tic) / 60
 
-                eval_acc = test_meters["test_referential_acc"]
+                # eval_acc = test_meters["test_referential_acc"]
 
-                last_test_acc = eval_acc
-                last_test_epoch = epoch
+                # last_test_acc = eval_acc
+                # last_test_epoch = epoch
 
                 lr_scheduler.step()
 
                 # TODO - Fix Save
-                save_state_dicts(
-                    osp.join(args.checkpoint_dir, "last_model.pth"),
-                    epoch,
-                    model=mvt3dvg,
-                    optimizer=optimizer,
-                    lr_scheduler=lr_scheduler,
-                )
+                # save_state_dicts(
+                #     osp.join(args.checkpoint_dir, "last_model.pth"),
+                #     epoch,
+                #     model=mvt3dvg,
+                #     optimizer=optimizer,
+                #     lr_scheduler=lr_scheduler,
+                # )
 
                 # TODO - Fix Log
-                if best_test_acc < eval_acc:
-                    logger.info(colored("Test accuracy, improved @epoch {}".format(epoch), "green"))
-                    best_test_acc = eval_acc
-                    best_test_epoch = epoch
+                # if best_test_acc < eval_acc:
+                #     logger.info(colored("Test accuracy, improved @epoch {}".format(epoch), "green"))
+                #     best_test_acc = eval_acc
+                #     best_test_epoch = epoch
 
-                    save_state_dicts(
-                        osp.join(args.checkpoint_dir, "best_model.pth"),
-                        epoch,
-                        model=mvt3dvg,
-                        optimizer=optimizer,
-                        lr_scheduler=lr_scheduler,
-                    )
-                else:
-                    logger.info(
-                        colored("Test accuracy, did not improve @epoch {}".format(epoch), "red")
-                    )
+                #     save_state_dicts(
+                #         osp.join(args.checkpoint_dir, "best_model.pth"),
+                #         epoch,
+                #         model=mvt3dvg,
+                #         optimizer=optimizer,
+                #         lr_scheduler=lr_scheduler,
+                #     )
+                # else:
+                #     logger.info(
+                #         colored("Test accuracy, did not improve @epoch {}".format(epoch), "red")
+                #     )
 
-                log_train_test_information()
-                train_meters.update(test_meters)
+                # log_train_test_information()
+                # train_meters.update(test_meters)
                 bar.refresh()
 
         with open(osp.join(args.checkpoint_dir, "final_result.txt"), "w") as f_out:
@@ -379,6 +379,8 @@ if __name__ == "__main__":
         logger.info("Finished training successfully.")
 
     elif args.mode == "test":
+        # TODO: change evaluation metrics
+        raise NotImplementedError
         meters = evaluate_on_dataset(
             mvt3dvg, data_loaders["test"], criteria, device, pad_idx, args=args, tokenizer=tokenizer
         )
@@ -387,5 +389,3 @@ if __name__ == "__main__":
         print("Text-Clf-Accuracy {:.4f}:".format(meters["test_txt_cls_acc"]))
 
         out_file = osp.join(args.checkpoint_dir, "test_result.txt")
-        # TODO: change evaluation metrics
-        raise NotImplementedError
