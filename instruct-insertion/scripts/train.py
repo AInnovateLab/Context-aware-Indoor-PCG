@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import json
 import os.path as osp
 import sys
 import time
@@ -35,8 +36,10 @@ from data.referit3d.in_out.neural_net_oriented import (
 #                #
 ##################
 # isort: split
+import evaluate
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
+from metrics import LOCAL_METRIC_PATHS
 from torch import multiprocessing as mp
 from torch import nn, optim
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -203,35 +206,58 @@ def main():
     last_test_acc = -1
     last_test_epoch = -1
 
+    evaluate.load
+
     # Training.
     if args.mode == "train":
-        logger.info("Starting the training. Good luck!")
+        logger.info("Starting the training. Good luck!", main_process_only=True)
+        with accelerator.main_process_first():
+            # load metrics
+            metrics = {
+                "referit3d_loc_acc": evaluate.load(
+                    LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+                    process_id=accelerator.process_index,
+                    num_process=accelerator.num_processes,
+                ),
+                "referit3d_cls_acc": evaluate.load(
+                    LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+                    process_id=accelerator.process_index,
+                    num_process=accelerator.num_processes,
+                ),
+                "referit3d_txt_acc": evaluate.load(
+                    LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+                    process_id=accelerator.process_index,
+                    num_process=accelerator.num_processes,
+                ),
+            }
 
         with tqdm.tqdm(
             range(start_training_epoch, args.max_train_epochs + 1),
             desc="epochs",
-            disable=not accelerator.is_local_main_process,
+            disable=not accelerator.is_main_process,
         ) as bar:
             timings = dict()
             for epoch in bar:
-                print("cnt_lr", lr_scheduler.get_last_lr())
+                logger.info(f"Current LR: {lr_scheduler.get_last_lr()}", main_process_only=True)
                 # Train:
                 tic = time.time()
                 train_meters = single_epoch_train(
-                    accelerator,
-                    mvt3dvg,
-                    point_e,
-                    sampler,
-                    data_loaders["train"],
-                    optimizer,
-                    device,
-                    pad_idx,
+                    accelerator=accelerator,
+                    MVT3DVG=mvt3dvg,
+                    point_e=point_e,
+                    sampler=sampler,
+                    data_loader=data_loaders["train"],
+                    optimizer=optimizer,
+                    device=device,
+                    pad_idx=pad_idx,
                     args=args,
-                    tokenizer=tokenizer,
+                    metrics=metrics,
                     epoch=epoch,
                 )
                 toc = time.time()
                 timings["train"] = (toc - tic) / 60
+
+                accelerator.log(train_meters)
 
                 # TODO - Fix Evaluate
                 # Evaluate:
@@ -282,7 +308,8 @@ def main():
                 # train_meters.update(test_meters)
                 bar.refresh()
 
-        logger.info("Finished training successfully.")
+        accelerator.end_training()
+        logger.info("Finished training successfully.", main_process_only=True)
 
     elif args.mode == "test":
         # TODO: change evaluation metrics

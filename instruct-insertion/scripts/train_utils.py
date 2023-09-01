@@ -6,6 +6,7 @@ import evaluate
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
 from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
@@ -29,13 +30,14 @@ def move_batch_to_device_(batch: Dict[str, Any], device):
 def single_epoch_train(
     accelerator: accelerate.Accelerator,
     MVT3DVG: ReferIt3DNet_transformer,
-    point_e,
+    point_e: nn.Module,
     sampler,
     data_loader,
     optimizer,
-    device,
-    pad_idx,
+    device: torch.device,
+    pad_idx: int,
     args,
+    metrics: Dict[str, evaluate.EvaluationModule],
     epoch=None,
 ):
     """
@@ -49,19 +51,14 @@ def single_epoch_train(
     :return:
     """
 
-    metrics = dict()  # holding the losses/accuracies
-    total_loss_mtr = AverageMeter()
-    referential_loss_mtr = AverageMeter()
-    obj_loss_mtr = AverageMeter()
-    ref_acc_mtr = AverageMeter()
-    cls_acc_mtr = AverageMeter()
-    txt_acc_mtr = AverageMeter()
+    total_loss_list = list()
+    total_loss_weights = list()
 
     # Set the model in training mode
     MVT3DVG.train()
     point_e.train()
 
-    for batch in tqdm.tqdm(data_loader, disable=not accelerator.is_local_main_process):
+    for batch in tqdm.tqdm(data_loader, disable=not accelerator.is_main_process):
         move_batch_to_device_(batch, device)
 
         # Forward pass
@@ -96,7 +93,7 @@ def single_epoch_train(
         # TODO - Redesign the loss function, should we put them together?
         # continue training MVT3DVG
         LOSS, LOGITS = MVT3DVG.second_stage_forward(out_feats, batch, CLASS_LOGITS, LANG_LOGITS)
-        LOSS = LOSS.mean() + losses.mean()
+        LOSS: torch.Tensor = LOSS.mean() + losses.mean()
 
         res = {}
         res["logits"] = LOGITS
@@ -104,31 +101,42 @@ def single_epoch_train(
         res["lang_logits"] = LANG_LOGITS
         # Backward
         optimizer.zero_grad()
-        LOSS.backward()
+        accelerator.backward(LOSS)
         optimizer.step()
+        total_loss_list.append(LOSS.item())
 
         # Update the loss and accuracy meters
         target = batch["target_pos"]
-        batch_size = target.size(0)  # B x N_Objects
-        total_loss_mtr.update(LOSS.item(), batch_size)
 
         predictions = torch.argmax(res["logits"], dim=1)
-        guessed_correctly = torch.mean((predictions == target).double()).item()
-        ref_acc_mtr.update(guessed_correctly, batch_size)
+
+        # TODO: change target, and be careful of the pad item, and gather more
+        predictions, target = accelerator.gather_for_metrics((predictions, target))
+
+        metrics["referit3d_loc_acc"].add_batch(
+            predictions=predictions,
+            references=target,
+        )
 
         if args.obj_cls_alpha > 0:
-            cls_b_acc, _ = cls_pred_stats(
-                res["class_logits"], batch["class_labels"], ignore_label=pad_idx
+            metrics["referit3d_cls_acc"].add_batch(
+                predictions=res["class_logits"].argmax(-1).flatten(),
+                references=batch["class_labels"].flatten(),
             )
-            cls_acc_mtr.update(cls_b_acc, batch_size)
 
         if args.lang_cls_alpha > 0:
-            batch_guess = torch.argmax(res["lang_logits"], -1)
-            cls_b_acc = torch.mean((batch_guess == batch["target_class"]).double())
-            txt_acc_mtr.update(cls_b_acc, batch_size)
+            metrics["referit3d_txt_acc"].add_batch(
+                predictions=res["lang_logits"].argmax(-1),
+                references=batch["target_class"],
+            )
 
-    metrics["train_total_loss"] = total_loss_mtr.avg
-    metrics["train_referential_acc"] = ref_acc_mtr.avg
-    metrics["train_object_cls_acc"] = cls_acc_mtr.avg
-    metrics["train_txt_cls_acc"] = txt_acc_mtr.avg
-    return metrics
+    # metrics["train_total_loss"] = total_loss_mtr.avg
+    # metrics["train_referential_acc"] = ref_acc_mtr.avg
+    # metrics["train_object_cls_acc"] = cls_acc_mtr.avg
+    # metrics["train_txt_cls_acc"] = txt_acc_mtr.avg
+    return {
+        "referit3d_loss": np.mean(total_loss_list),
+        "referit3d_loc_acc": metrics["referit3d_loc_acc"].compute(ignore=pad_idx),
+        "referit3d_cls_acc": metrics["referit3d_cls_acc"].compute(ignore=pad_idx),
+        "referit3d_txt_acc": metrics["referit3d_txt_acc"].compute(ignore=pad_idx),
+    }
