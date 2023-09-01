@@ -378,7 +378,7 @@ if __name__ == "__main__":
 
         logger.info("Finished training successfully.")
 
-    elif args.mode == "evaluate":
+    elif args.mode == "test":
         meters = evaluate_on_dataset(
             mvt3dvg, data_loaders["test"], criteria, device, pad_idx, args=args, tokenizer=tokenizer
         )

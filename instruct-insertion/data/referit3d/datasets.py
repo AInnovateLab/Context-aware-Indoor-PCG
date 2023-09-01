@@ -16,8 +16,7 @@ from .utils import (
     infer_floor_z_coord,
     instance_labels_of_context,
     max_io_workers,
-    mean_rgb_unit_norm_transform,
-    pad_samples,
+    normalize_pc,
     sample_scan_object,
 )
 
@@ -29,24 +28,20 @@ class ReferIt3DDataset(Dataset):
         scans: Dict[str, ScannetScan],
         max_seq_len: int,
         points_per_object: int,
-        max_distractors: int,
+        max_context_objects: int,
         class_to_idx: Dict[str, int],
         object_transformation=None,
         height_append: bool = True,
-        visualization: bool = False,
     ):
         self.references = references
         self.scans = scans
         self.max_seq_len = max_seq_len
         self.points_per_object = points_per_object
-        self.max_distractors = max_distractors
-        self.max_context_size = self.max_distractors + 1  # to account for the target.
+        self.max_context_objects = max_context_objects
         self.class_to_idx = class_to_idx
         self.height_append = height_append
-        self.visualization = visualization
         self.object_transformation = object_transformation
-        if not check_segmented_object_order(scans):
-            raise ValueError
+        assert check_segmented_object_order(scans), "Objects are not ordered by object id"
 
     def __len__(self):
         return len(self.references)
@@ -61,92 +56,118 @@ class ReferIt3DDataset(Dataset):
 
         return scan, target, text, is_nr3d, scan_id
 
-    def prepare_distractors(self, scan: ScannetScan, target: ThreeDObject):
+    def prepare_context_objects(self, scan: ScannetScan, target: ThreeDObject):
         target_label = target.instance_label
 
         # First add all objects with the same instance-label as the target
-        distractors = [
+        context_objects = [
             o for o in scan.three_d_objects if (o.instance_label == target_label and (o != target))
         ]
 
-        # Then all more objects up to max-number of distractors
+        # Then all more objects up to max-number of context objects
         clutter = [o for o in scan.three_d_objects if o.instance_label != target_label]
 
-        distractors.extend(clutter)
-        distractors = distractors[: self.max_distractors]
-        np.random.shuffle(distractors)
+        context_objects.extend(clutter)
+        context_objects = context_objects[: self.max_context_objects]
+        np.random.shuffle(context_objects)
 
-        return distractors
+        return context_objects
 
     def __getitem__(self, index: int):
         res = dict()
         scan, target, text, is_nr3d, scan_id = self.get_reference_data(index)
-        # Make a context of distractors
-        context = self.prepare_distractors(scan, target)
-
-        # Add target object in 'context' list
-        target_pos = np.random.randint(len(context) + 1)
-        context.insert(target_pos, target)
+        # Make a context of background objects
+        context = self.prepare_context_objects(scan, target)
+        assert len(context) <= self.max_context_objects
+        context_w_tgt = [target] + context
 
         # sample point/color for them
-        samples = np.array(
-            [sample_scan_object(o, self.points_per_object) for o in context]
+        samples_w_tgt = np.array(
+            [sample_scan_object(o, self.points_per_object) for o in context_w_tgt]
         )  # (# of objects, # of points, 6)
         # 7 when we append height to the point cloud
         if self.height_append:
             floor_z = infer_floor_z_coord(scan)
-            height = samples[:, :, 2] - floor_z
-            samples = np.concatenate(
-                [samples, height[:, :, None]], axis=2
+            height = samples_w_tgt[:, :, 2] - floor_z
+            samples_w_tgt = np.concatenate(
+                [samples_w_tgt, height[:, :, None]], axis=2
             )  # (# of objects, # of points, 7)
 
-        # mark their classes
-        res["class_labels"] = instance_labels_of_context(
-            context, self.max_context_size, self.class_to_idx
-        )
-        res["scan_id"] = scan_id
         # the center point of bbox in the scene coord system
-        box_center = np.array([o.get_bbox().center() for o in context])
-        box_z_len = np.array([o.get_bbox().lz for o in context])
+        tgt_box_center_w_tgt = np.array(
+            [o.get_bbox().center() for o in context_w_tgt]
+        )  # (# of objects, 3)
+        # the max dist from the center point to the farthest point in the bbox
+        tgt_box_max_dist_w_tgt = np.array((len(context_w_tgt),))  # (# of objects,)
+        for i, o in enumerate(context_w_tgt):
+            tmp = o.get_pc() - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
+            tgt_box_max_dist_w_tgt[i] = np.linalg.norm(tmp, axis=1, ord=2).max()
 
         if self.object_transformation is not None:
-            samples = self.object_transformation(samples)
+            samples_w_tgt = self.object_transformation(
+                samples_w_tgt, box_center=tgt_box_center_w_tgt, box_max_dist=tgt_box_max_dist_w_tgt
+            )
 
-        res["context_size"] = len(samples)
-
-        # take care of padding, so that a batch has same number of N-objects across scans.
-        res["objects"] = pad_samples(samples, self.max_context_size)
-
-        # Get a mask indicating which objects have the same instance-class as the target.
-        target_class_mask = np.zeros(self.max_context_size, dtype=bool)
-        target_class_mask[: len(context)] = [
-            target.instance_label == o.instance_label for o in context
-        ]
-
-        res["target_class"] = self.class_to_idx[target.instance_label]
-        res["target_pos"] = target_pos
-        res["target_class_mask"] = target_class_mask
+        res["scan_id"] = scan_id
         res["text"] = text
-        res["is_nr3d"] = is_nr3d
-        res["box_center"] = box_center
-        res["box_z_len"] = box_z_len
 
-        if self.visualization:
-            # 6 is the maximum context size we used in dataset collection
-            distrators_pos = np.zeros((6,))
-            object_ids = np.zeros((self.max_context_size))
-            j = 0
-            for k, o in enumerate(context):
-                if o.instance_label == target.instance_label and o.object_id != target.object_id:
-                    distrators_pos[j] = k
-                    j += 1
-            for k, o in enumerate(context):
-                object_ids[k] = o.object_id
-            res["utterance"] = self.references.iloc[index]["utterance"]
-            res["stimulus_id"] = self.references.iloc[index]["stimulus_id"]
-            res["distrators_pos"] = distrators_pos
-            res["object_ids"] = object_ids
-            res["target_object_id"] = target.object_id
+        # context
+        # NOTE: take care of padding, so that a batch has same # of objects across scans.
+        res["ctx_mask"] = np.array(
+            [True] * len(context) + [False] * (self.max_context_objects - len(context)), type=bool
+        )
+        res["ctx_class"] = instance_labels_of_context(
+            context,
+            self.max_context_objects,
+            self.class_to_idx,
+            add_padding=True,
+        )  # (# of objects,)
+        if len(context) < self.max_context_objects:
+            # padding
+            res["ctx_pc"] = np.pad(
+                samples_w_tgt[1:],
+                ((0, self.max_context_objects - len(context)), (0, 0), (0, 0)),
+                constant_values=0,
+            )  # (# of objects, # of points, 6 or 7)
+            res["ctx_box_center"] = np.pad(
+                tgt_box_center_w_tgt[1:],
+                ((0, self.max_context_objects - len(context)), (0, 0)),
+                constant_values=0,
+            )  # (# of objects, 3)
+            res["ctx_box_max_dist"] = np.pad(
+                tgt_box_max_dist_w_tgt[1:],
+                (0, self.max_context_objects - len(context)),
+                constant_values=0,
+            )  # (# of objects,)
+        else:
+            res["ctx_pc"] = samples_w_tgt[1:]
+            res["ctx_box_center"] = tgt_box_center_w_tgt[1:]
+            res["ctx_box_max_dist"] = tgt_box_max_dist_w_tgt[1:]
+
+        # target
+        res["tgt_pc"] = samples_w_tgt[0]  # (# of points, 6 or 7)
+        res["tgt_class"] = self.class_to_idx[target.instance_label]  # scalar
+        res["tgt_box_center"] = tgt_box_center_w_tgt[0]  # (3,)
+        res["tgt_box_max_dist"] = tgt_box_max_dist_w_tgt[0]  # scalar
+
+        """
+        Data format in batch:
+        {
+            "scan_id": List[str],
+            "text": List[str],
+            ---
+            "ctx_mask": BoolTensor, (B, # of context),
+            "ctx_class": LongTensor, (B, # of context),
+            "ctx_pc": FloatTensor, (B, # of context, P, 6 or 7),
+            "ctx_box_center": FloatTensor, (B, # of context, 3),
+            "ctx_box_max_dist": FloatTensor, (B, # of context),
+            ---
+            "tgt_pc": FloatTensor, (B, P, 6 or 7),
+            "tgt_class": LongTensor, (B,),
+            "tgt_box_center": FloatTensor, (B, 3),
+            "tgt_box_max_dist": FloatTensor, (B,),
+        }
+        """
 
         return res
 
@@ -164,65 +185,29 @@ def make_data_loaders(
 
     data_loaders: Dict[Literal["train", "test"], DataLoader] = dict()
     is_train = referit_data["is_train"]
-    splits = ("train", "test")
 
     object_transformation = partial(
-        mean_rgb_unit_norm_transform, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
+        normalize_pc, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
     )
 
-    for split in splits:
+    for split in ("train", "test"):
         mask = is_train if split == "train" else ~is_train
         d_set = referit_data[mask]
         d_set.reset_index(drop=True, inplace=True)
-
-        max_distractors = args.max_distractors if split == "train" else args.max_test_objects - 1
-        ## this is a silly small bug -> not the minus-1.
-
-        # if split == test remove the utterances of unique targets
-        if split == "test":
-
-            def multiple_targets_utterance(x):
-                _, _, _, _, distractors_ids = decode_stimulus_string(x.stimulus_id)
-                return len(distractors_ids) > 0
-
-            multiple_targets_mask = d_set.apply(multiple_targets_utterance, axis=1)
-            d_set = d_set[multiple_targets_mask]
-            d_set.reset_index(drop=True, inplace=True)
-            print(
-                "length of dataset before removing non multiple test utterances {}".format(
-                    len(d_set)
-                )
-            )
-            print(
-                "removed {} utterances from the test set that don't have multiple distractors".format(
-                    np.sum(~multiple_targets_mask)
-                )
-            )
-            print(
-                "length of dataset after removing non multiple test utterances {}".format(
-                    len(d_set)
-                )
-            )
-
-            assert np.sum(~d_set.apply(multiple_targets_utterance, axis=1)) == 0
 
         dataset = ReferIt3DDataset(
             references=d_set,
             scans=scans,
             max_seq_len=args.max_seq_len,
             points_per_object=args.points_per_object,
-            max_distractors=max_distractors,
+            max_context_objects=args.max_context_objects,
             class_to_idx=class_to_idx,
             object_transformation=object_transformation,
-            visualization=args.mode == "evaluate",
+            height_append=args.height_append,
         )
 
-        seed = None
-        if split == "test":
-            seed = args.random_seed
-
         data_loaders[split] = dataset_to_dataloader(
-            dataset, split, args.batch_size, n_workers, seed=seed
+            dataset, split, args.batch_size, n_workers, seed=args.random_seed
         )
 
     return data_loaders

@@ -64,10 +64,10 @@ def parse_arguments(notebook_options=None):
     #                                  #
     ####################################
     parser.add_argument(
-        "--max-distractors",
+        "--max-context-objects",
         type=int,
-        default=51,
-        help="Maximum number of distracting objects to be drawn from a scan.",
+        default=50,
+        help="Maximum number of context objects in the scene.",
     )
     parser.add_argument(
         "--max-seq-len",
@@ -95,14 +95,19 @@ def parse_arguments(notebook_options=None):
         help="If True, drop references that do not explicitly mention the target-class.",
     )
     parser.add_argument("--min-word-freq", type=int, default=3)
-    parser.add_argument("--max-test-objects", type=int, default=88)
+    parser.add_argument(
+        "--height-append",
+        type=str2bool,
+        default=True,
+        help="If True, append height to the floor as the 7th channel of point-clouds.",
+    )
 
     ############################
     #                          #
     #    Training arguments    #
     #                          #
     ############################
-    parser.add_argument("--mode", type=str, default="train", choices=["train", "evaluate", "vis"])
+    parser.add_argument("--mode", type=str, default="train", choices=["train", "test", "vis"])
     parser.add_argument(
         "--max-train-epochs",
         type=int,
@@ -232,6 +237,8 @@ def parse_arguments(notebook_options=None):
         args = parser.parse_args(notebook_options)
     else:
         args = parser.parse_args()
+
+    assert args.max_context_objects >= 1, "max_context_objects must be >= 1"
 
     if not args.resume_path and not args.log_dir:
         raise ValueError

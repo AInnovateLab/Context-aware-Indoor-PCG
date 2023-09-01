@@ -114,6 +114,9 @@ if __name__ == "__main__":
 
     start_time = time.time()
     n_items = len(all_scan_ids)
+    if n_items == 0:
+        print("No scans found.")
+        exit(0)
     if args.n_processes == -1:
         n_processes = min(mp.cpu_count(), n_items)
 

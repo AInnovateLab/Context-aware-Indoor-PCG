@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
 from torch.utils.data import DataLoader
+from utils.logger import get_logger
 
 if TYPE_CHECKING:
     from ..in_out.scannet_scan import ScannetScan
@@ -25,7 +26,7 @@ def max_io_workers():
 
 
 def dataset_to_dataloader(
-    dataset, split, batch_size, n_workers, pin_memory=False, seed=None
+    dataset, split, batch_size, n_workers, pin_memory=True, seed=None
 ) -> DataLoader:
     """
     :param dataset:
@@ -36,27 +37,19 @@ def dataset_to_dataloader(
     :param seed:
     :return:
     """
-    batch_size_multiplier = 1 if split == "train" else 2
-    b_size = int(batch_size_multiplier * batch_size)
-
-    drop_last = False
-    if split == "train" and len(dataset) % b_size == 1:
-        print("dropping last batch during training")
-        drop_last = True
-
     shuffle = split == "train"
 
     worker_init_fn = lambda x: np.random.seed(seed)
     if split == "test":
         if type(seed) is not int:
-            warnings.warn("Test split is not seeded in a deterministic manner.")
+            logger = get_logger()
+            logger.warning("Test split is not seeded in a deterministic manner.")
 
     data_loader = DataLoader(
         dataset,
-        batch_size=b_size,
+        batch_size=batch_size,
         num_workers=n_workers,
         shuffle=shuffle,
-        drop_last=drop_last,
         pin_memory=pin_memory,
         worker_init_fn=worker_init_fn,
     )
@@ -70,23 +63,9 @@ def dataset_to_dataloader(
 ######################################
 
 
-def sample_scan_object(
-    object: "ThreeDObject", n_points: int, training=False, use_fps=False, rank=0
-) -> np.ndarray:
-    sample = object.sample(n_samples=n_points, training=training, use_fps=use_fps, rank=rank)
+def sample_scan_object(object: "ThreeDObject", n_points: int, use_fps=False, rank=0) -> np.ndarray:
+    sample = object.sample(n_samples=n_points, use_fps=use_fps, rank=rank)
     return np.concatenate([sample["xyz"], sample["color"]], axis=1)
-
-
-def pad_samples(samples, max_context_size, padding_value=1):
-    n_pad = max_context_size - len(samples)
-
-    if n_pad > 0:
-        shape = (max_context_size, samples.shape[1], samples.shape[2])
-        temp = np.zeros(shape, dtype=samples.dtype) * padding_value
-        temp[: samples.shape[0], : samples.shape[1]] = samples
-        samples = temp
-
-    return samples
 
 
 def check_segmented_object_order(scans: Dict[str, "ScannetScan"]):
@@ -100,30 +79,15 @@ def check_segmented_object_order(scans: Dict[str, "ScannetScan"]):
         idx = scan.three_d_objects[0].object_id
         for o in scan.three_d_objects:
             if not (o.object_id == idx):
-                print("Check failed for {}".format(scan_id))
+                logger = get_logger()
+                logger.critical(f"Objects are not ordered by object id: {scan_id}")
                 return False
             idx += 1
     return True
 
 
-def objects_bboxes(context):
-    b_boxes = []
-    for o in context:
-        bbox = o.get_bbox(axis_aligned=True)
-
-        # Get the centre
-        cx, cy, cz = bbox.cx, bbox.cy, bbox.cz
-
-        # Get the scale
-        lx, ly, lz = bbox.lx, bbox.ly, bbox.lz
-
-        b_boxes.append([cx, cy, cz, lx, ly, lz])
-
-    return np.array(b_boxes).reshape((len(context), 6))
-
-
 def instance_labels_of_context(
-    context: List[ThreeDObject],
+    context: List["ThreeDObject"],
     max_context_size: int,
     label_to_idx: Dict[str, int],
     add_padding=True,
@@ -143,37 +107,55 @@ def instance_labels_of_context(
     return instance_labels
 
 
-def mean_rgb_unit_norm_transform(
-    segmented_objects, mean_rgb, unit_norm, epsilon_dist=1e-6, inplace=True
-):
+def normalize_pc(
+    segmented_objects: np.ndarray,
+    mean_rgb: np.ndarray,
+    unit_norm: bool,
+    box_center: Optional[np.ndarray] = None,
+    box_max_dist: Optional[np.ndarray] = None,
+    inplace=True,
+    **kwargs,
+) -> np.ndarray:
     """
-    :param segmented_objects: K x n_points x 6, K point-clouds with color.
-    :param mean_rgb:
-    :param unit_norm:
-    :param epsilon_dist: if max-dist is less than this, we apply not scaling in unit-sphere.
-    :param inplace: it False, the transformation is applied in a copy of the segmented_objects.
-    :return:
+    Normalize the segmented objects.
+
+    Args:
+        segmented_objects (np.ndarray): (# of objects, # of points, 6 or 7), point-clouds with color (and height).
+        mean_rgb (np.ndarray): (3,), the mean RGB color of the points of all scans.
+        unit_norm (bool): If True, the xyz coordinates are normalized to the unit sphere.
+        box_center (np.ndarray): (# of objects, 3), the center of the bounding box of each object. If not provided,
+            the center of the samples is used.
+        box_max_dist (np.ndarray): (# of objects,), the maximum distance of the points from the center
+            of the bounding box. If not provided, the maximum distance of the points from the center of samples is used.
+        inplace (bool): If False, the transformation is applied in a copy of the segmented_objects.
     """
+    if len(kwargs):
+        warnings.warn(f"Unused arguments: {kwargs}")
     if not inplace:
         segmented_objects = segmented_objects.copy()
 
     # adjust rgb
-    segmented_objects[:, :, 3:6] -= np.expand_dims(mean_rgb, 0)
+    segmented_objects[:, :, 3:6] -= mean_rgb[None, None, :]
 
     # center xyz
     if unit_norm:
         xyz = segmented_objects[:, :, :3]
-        mean_center = xyz.mean(axis=1)
-        xyz -= np.expand_dims(mean_center, 1)
-        max_dist = np.max(np.sqrt(np.sum(xyz**2, axis=-1)), -1)
-        max_dist[max_dist < epsilon_dist] = 1  # take care of tiny point-clouds, i.e., padding
-        xyz /= np.expand_dims(np.expand_dims(max_dist, -1), -1)
+        if box_center is None:
+            mean_center = xyz.mean(axis=1)
+        else:
+            mean_center = box_center
+        xyz -= mean_center[:, None, :]
+        if box_max_dist is None:
+            max_dist = np.linalg.norm(xyz, axis=-1, ord=2).max(axis=-1)
+        else:
+            max_dist = box_max_dist
+        xyz /= max_dist[:, None, None]
         segmented_objects[:, :, :3] = xyz
 
     return segmented_objects
 
 
-def infer_floor_z_coord(scan: "ScannetScan") -> float:
+def infer_floor_z_coord(scan: "ScannetScan", floor_label: str = "floor") -> float:
     """
     Infer the z-coordinate of the floor. If the "floor" exists, the maximum
     z-coordinate of the floor is returned. Otherwise, the minimum z-coordinate
@@ -186,7 +168,9 @@ def infer_floor_z_coord(scan: "ScannetScan") -> float:
         float: The z-coordinate of the upper surface of the floor.
     """
     floor_zs = [
-        obj.get_bbox().extrema[5] for obj in scan.three_d_objects if obj.instance_label == "floor"
+        obj.get_bbox().extrema[5]
+        for obj in scan.three_d_objects
+        if obj.instance_label == floor_label
     ]
     if len(floor_zs) > 0:
         return sum(floor_zs) / len(floor_zs)

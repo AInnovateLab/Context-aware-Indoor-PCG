@@ -204,40 +204,8 @@ class ThreeDObject(object):
             res = np.min(distances)
         return res
 
-    def points_augmentation(self, xyz):
-        """
-        xyz: (N_pt_nums, D=3)
-        """
-
-        # centralized
-        mean_center = xyz.mean(axis=0)
-        xyz_ = xyz - np.expand_dims(mean_center, 0)
-
-        # [1] random_world_flip_x
-        enable = np.random.choice([False, True], replace=False, p=[0.5, 0.5])
-        if enable:
-            xyz_[:, 0] = -xyz_[:, 0]
-        # [2] random_world_flip_y
-        enable = np.random.choice([False, True], replace=False, p=[0.5, 0.5])
-        if enable:
-            xyz_[:, 1] = -xyz_[:, 1]
-
-        # [3] random rotation
-        rot_range = [-0.78539816, 0.78539816]
-        noise_rotation = np.random.uniform(rot_range[0], rot_range[1])
-        xyz_[:, 0:3] = rotate_points_along_z(xyz_[np.newaxis, :, :], np.array([noise_rotation]))[0]
-
-        # [4] global scaling
-        scale_range = [0.95, 1.05]
-        noise_scale = np.random.uniform(scale_range[0], scale_range[1])
-        xyz_ *= noise_scale
-
-        xyz = xyz_ + np.expand_dims(mean_center, 0)
-
-        return xyz
-
     @torch.no_grad()
-    def sample(self, n_samples, normalized_pc=False, training=False, use_fps=False, rank=0):
+    def sample(self, n_samples, normalized_pc=False, use_fps=False, rank=0):
         """sub-sample its pointcloud and color"""
         xyz = self.get_pc(normalized=normalized_pc)
         color = self.color
@@ -245,10 +213,10 @@ class ThreeDObject(object):
         n_points = len(self.points)
         assert xyz.shape[0] == len(self.points)
 
-        # fps
+        # fps - furthest point sampling
+        # TODO: re-enable this
         if use_fps:
-            fps_sample = 4096
-            idx = np.random.choice(n_points, fps_sample, replace=n_points < fps_sample)
+            idx = np.random.choice(n_points, n_samples, replace=n_points < n_samples)
             object_samples = {
                 "xyz": xyz[idx].copy(),
                 "color": color[idx].copy(),
@@ -269,12 +237,5 @@ class ThreeDObject(object):
                 "xyz": xyz[idx].copy(),
                 "color": color[idx].copy(),
             }
-
-        if training:
-            object_samples["xyz"] = self.points_augmentation(object_samples["xyz"])
-            pt_idxs = np.arange(0, object_samples["xyz"].shape[0])
-            np.random.shuffle(pt_idxs)
-            object_samples["xyz"] = object_samples["xyz"][pt_idxs, :]
-            object_samples["color"] = object_samples["color"][pt_idxs, :]
 
         return object_samples

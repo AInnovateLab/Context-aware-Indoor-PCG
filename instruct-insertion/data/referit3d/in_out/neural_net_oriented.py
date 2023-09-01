@@ -48,9 +48,9 @@ def objects_counter_percentile(scan_ids: List[str], all_scans: Dict[str, Scannet
 def mean_color(scan_ids: List[str], all_scans: Dict[str, ScannetScan]) -> np.ndarray:
     """
     Returns:
-        np.ndarray: shape (1, 3). The mean RGB color of the points in the specified scans.
+        np.ndarray: shape (3,). The mean RGB color of the points in the specified scans.
     """
-    mean_rgb = np.zeros((1, 3), dtype=np.float32)
+    mean_rgb = np.zeros((3,), dtype=np.float32)
     n_points = 0
     for scan_id in scan_ids:
         color = all_scans[scan_id].color

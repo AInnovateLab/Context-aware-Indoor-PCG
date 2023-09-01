@@ -241,7 +241,7 @@ def detailed_predictions_on_dataset(
     res["context_size"] = list()
     res["guessed_correctly_among_true_class"] = list()
 
-    batch_keys = make_batch_keys(args, extras=["context_size", "target_class_mask"])
+    batch_keys = make_batch_keys(args, extras=["context_size"])
 
     if FOR_VISUALIZATION:
         res["utterance"] = list()
@@ -296,6 +296,7 @@ def detailed_predictions_on_dataset(
 
         # also see what would happen if you where to constraint to the target's class.
         cancellation = -1e6
+        # TODO: "target_class_mask" is removed, modify this accordingly
         mask = batch["target_class_mask"]
         out["logits"] = out["logits"].float() * mask.float() + (~mask).float() * cancellation
         predictions = torch.argmax(out["logits"], dim=1)

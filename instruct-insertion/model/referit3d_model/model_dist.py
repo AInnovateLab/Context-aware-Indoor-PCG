@@ -375,7 +375,7 @@ def detailed_predictions_on_dataset(
     res["context_size"] = list()
     res["guessed_correctly_among_true_class"] = list()
 
-    batch_keys = make_batch_keys(args, extras=["context_size", "target_class_mask"])
+    batch_keys = make_batch_keys(args, extras=["context_size"])
 
     if FOR_VISUALIZATION:
         res["utterance"] = list()
