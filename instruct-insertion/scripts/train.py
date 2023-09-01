@@ -88,36 +88,10 @@ from utils.arguments import parse_arguments
 from utils.logger import get_logger, init_logger
 
 
-def log_train_test_information():
-    """Helper logging function.
-    Note uses "global" variables defined below.
-    """
-    logger = get_logger()
-    logger.info("Epoch:{}".format(epoch))
-    for phase in ["train", "test"]:
-        if phase == "train":
-            meters = train_meters
-        else:
-            meters = test_meters
-
-        info = "{}: Total-Loss {:.4f}, Listening-Acc {:.4f}".format(
-            phase, meters[phase + "_total_loss"], meters[phase + "_referential_acc"]
-        )
-
-        if args.obj_cls_alpha > 0:
-            info += ", Object-Clf-Acc: {:.4f}".format(meters[phase + "_object_cls_acc"])
-
-        if args.lang_cls_alpha > 0:
-            info += ", Text-Clf-Acc: {:.4f}".format(meters[phase + "_txt_cls_acc"])
-
-        logger.info(info)
-        logger.info("{}: Epoch-time {:.3f}".format(phase, timings[phase]))
-    logger.info("Best so far {:.3f} (@epoch {})".format(best_test_acc, best_test_epoch))
-
-
 def main():
     # Parse arguments
     args = parse_arguments()
+
     # TODO: add log file
     init_logger()
     logger = get_logger(__name__)
@@ -153,7 +127,7 @@ def main():
     class_name_tokens: BatchEncoding = tokenizer(class_name_list, return_tensors="pt", padding=True)
     class_name_tokens = class_name_tokens.to(device)
 
-    if args.model == "referIt3DNet_transformer":
+    if args.mvt_model == "referIt3DNet_transformer":
         mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
     else:
         assert False
@@ -173,57 +147,22 @@ def main():
     if not args.label_lang_sup:
         param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
 
-    config = load_config(open(args.config))
-
     # construct model
-    point_e = model_from_config(MODEL_CONFIGS[name], device)
+    point_e = model_from_config(MODEL_CONFIGS[args.point_e_model], device)
     point_e.to(device)
 
     # construct diffusion
-    point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[name])
-
-    # construct optimizer for point_e
-    # NOTE - we should have only one optimizer, this is abandoned
-    # if opt_config["type"] == "adamw":
-    #         opt = optim.AdamW(
-    #         point_e.parameters(),
-    #         lr=opt_config["lr"], # lr = 1e-4
-    #         betas=tuple(opt_config["betas"]), # [0.95, 0.999]
-    #         eps=opt_config["eps"], 1e-6
-    #         weight_decay=opt_config["weight_decay"], # 1e-3
-    #     )
-    # elif opt_config["type"] == "sgd":
-    #     opt = optim.SGD(
-    #         point_e.parameters(),
-    #         lr=opt_config["lr"],
-    #         momentum=opt_config.get("momentum", 0.0),
-    #         nesterov=opt_config.get("nesterov", False),
-    #         weight_decay=opt_config.get("weight_decay", 0.0),
-    #     )
-    # else:
-    #     raise ValueError("Invalid optimizer type")
+    point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[args.point_e_model])
 
     param_list.append({"params": point_e.parameters(), "lr": args.init_lr})
     optimizer = optim.AdamW(param_list, lr=args.init_lr)  # init_lr = 1e-4
 
-    # NOTE - This scheduler was abandoned, but not sure which is better
-    # lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
-    #     optimizer, [40, 50, 60, 70, 80, 90], gamma=0.65
-    # )
-
-    model_config = config["model"]
-    dataset_config = config["dataset"]
-    sched_config = config["lr_sched"]
-    max_epoches = config["max_epoches"]
-    name = model_config["name"]
-    opt_config = config["optimizer"]
-
     lr_scheduler = get_linear_scheduler(
         optimizer,
         start_epoch=0,
-        end_epoch=max_epoches,
-        start_lr=opt_config["lr"],
-        end_lr=sched_config["min_lr"],
+        end_epoch=args.max_train_epochs,
+        start_lr=args.init_lr,
+        end_lr=args.min_lr,
     )
 
     # adapt with `accelerate`
@@ -238,18 +177,18 @@ def main():
         mvt3dvg, point_e, data_loaders["train"], data_loaders["test"], optimizer, lr_scheduler
     )
 
-    aux_channels = [] if "3channel" in model_config["name"] else ["R", "G", "B"]
+    aux_channels = ["R", "G", "B"]
     sampler = PointCloudSampler(
         device=device,
         models=[point_e],
         diffusions=[point_e_diffusion],
-        num_points=[model_config["num_points"]],
+        num_points=[args.points_per_object],
         aux_channels=aux_channels,
         guidance_scale=[3.0],
         use_karras=[True],
         karras_steps=[64],
-        sigma_min=[model_config["sigma_min"]],
-        sigma_max=[model_config["sigma_max"]],
+        sigma_min=[1e-3],
+        sigma_max=[120],
         s_churn=[3],
         model_kwargs_key_filter=[args.cond],
     )
@@ -283,7 +222,6 @@ def main():
                     mvt3dvg,
                     point_e,
                     sampler,
-                    config,
                     data_loaders["train"],
                     optimizer,
                     device,

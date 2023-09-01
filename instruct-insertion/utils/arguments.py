@@ -129,7 +129,13 @@ def parse_arguments(notebook_options=None):
         default=2020,
         help="Control pseudo-randomness (net-wise, point-cloud sampling etc.) fostering reproducibility.",
     )
-    parser.add_argument("--init-lr", type=float, default=0.0005, help="learning rate for training.")
+    parser.add_argument(
+        "--init-lr", type=float, default=0.0005, help="init & max learning rate for training."
+    )
+    parser.add_argument(
+        "--min-lr", type=float, default=0.00005, help="min learning rate for training."
+    )
+    parser.add_argument("--lr-sched", type=str, default="linear", help="lr scheduler type.")
     parser.add_argument(
         "--resume-path",
         type=str,
@@ -143,7 +149,7 @@ def parse_arguments(notebook_options=None):
     #                       #
     #########################
     parser.add_argument(
-        "--model",
+        "--mvt-model",
         type=str,
         default="referIt3DNet_transformer",
         choices=[
@@ -157,8 +163,8 @@ def parse_arguments(notebook_options=None):
         help="path to pretrained bert model. Check huggingface hub for more models.",
     )
 
-    parser.add_argument("--view_number", type=int, default=4)
-    parser.add_argument("--rotate_number", type=int, default=4)
+    parser.add_argument("--view-number", type=int, default=4)
+    parser.add_argument("--rotate-number", type=int, default=4)
 
     parser.add_argument("--label-lang-sup", type=str2bool, default=True)
     parser.add_argument("--aggregate-type", type=str, default="avg")
@@ -183,6 +189,8 @@ def parse_arguments(notebook_options=None):
         default=0.5,
         help="if > 0 a loss for guessing for each segmented" " object its class type is added.",
     )
+
+    parser.add_argument("--point-e-model", type=str, default="base40M-textvec")
 
     ########################
     #                      #
@@ -238,8 +246,8 @@ def parse_arguments(notebook_options=None):
     assert args.max_context_objects >= 1, "max_context_objects must be >= 1"
 
     if args.config_file is not None:
-        with open(args.config_file, "r") as fin:
-            configs_dict = json.load(fin)
+        with open(args.config_file, "r") as file:
+            configs_dict = json.load(file)
             apply_configs(args, configs_dict)
 
     # Print them nicely
@@ -254,29 +262,8 @@ def parse_arguments(notebook_options=None):
     return args
 
 
-def read_saved_args(config_file, override_args=None, verbose=True):
-    """
-    :param config_file:
-    :param override_args: dict e.g., {'gpu': '0'}
-    :param verbose:
-    :return:
-    """
-    parser = ArgumentParser()
-    args = parser.parse_args([])
-    with open(config_file, "r") as f_in:
-        args.__dict__ = json.load(f_in)
-
-    if override_args is not None:
-        for key, val in override_args.items():
-            args.__setattr__(key, val)
-
-    if verbose:
-        args_string = pprint.pformat(vars(args))
-        print(args_string)
-
-    return args
-
-
 def apply_configs(args, config_dict):
     for k, v in config_dict.items():
+        k = k.replace("-", "_")
+        v = v.replace("-", "_")
         setattr(args, k, v)

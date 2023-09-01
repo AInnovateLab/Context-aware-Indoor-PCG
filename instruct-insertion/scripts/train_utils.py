@@ -31,7 +31,6 @@ def single_epoch_train(
     MVT3DVG: ReferIt3DNet_transformer,
     point_e,
     sampler,
-    config,
     data_loader,
     optimizer,
     device,
@@ -76,12 +75,10 @@ def single_epoch_train(
         cond = batch["desc"]
 
         # TODO - Here we need to reshape the tensor from MVT3DVG
-        mvt_feats = copy.deepcopy(out_feats)
-        mvt_feats = mvt_feats.to(device)
+        mvt_feats = out_feats
 
         # TODO - Here we add the tensor from MVT3DVG to point_e
         losses = sampler.loss_texts(mvt_feats, reals, cond, reals.shape[0])
-        losses.backward()
 
         # NOTE - logger and model saving, this need to be reconsider
         # if env.is_master() and step % config["echo_every"] == 0:
@@ -99,7 +96,7 @@ def single_epoch_train(
         # TODO - Redesign the loss function, should we put them together?
         # continue training MVT3DVG
         LOSS, LOGITS = MVT3DVG.second_stage_forward(out_feats, batch, CLASS_LOGITS, LANG_LOGITS)
-        LOSS = LOSS.mean()
+        LOSS = LOSS.mean() + losses.mean()
 
         res = {}
         res["logits"] = LOGITS
