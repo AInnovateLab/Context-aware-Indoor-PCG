@@ -1,16 +1,11 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import json
 import os.path as osp
 import sys
 import time
-from pprint import pformat
 
-import torch
-import torch.nn as nn
 import tqdm
-from termcolor import colored
 from torch import optim
 
 sys.path.append(f"{osp.dirname(__file__)}/..")
@@ -40,13 +35,7 @@ import evaluate
 from accelerate import Accelerator
 from accelerate.utils import ProjectConfiguration
 from metrics import LOCAL_METRIC_PATHS
-from torch import multiprocessing as mp
-from torch import nn, optim
-from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils import data
-from torch.utils.data.distributed import DistributedSampler
-from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms, utils
+from torch import optim
 from train_utils import single_epoch_train
 
 ##################################
@@ -55,10 +44,8 @@ from train_utils import single_epoch_train
 #                                #
 ##################################
 # isort: split
-# from model.referit3d.analysis.deepnet_predictions import analyze_predictions
 from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
-from model.referit3d_model.utils import load_state_dicts, save_state_dicts
-from transformers import BatchEncoding, BertModel, BertTokenizer
+from transformers import BatchEncoding, BertTokenizer
 
 # from model.referit3d_model.utils.tf_visualizer import Visualizer
 
@@ -69,12 +56,10 @@ from transformers import BatchEncoding, BertModel, BertTokenizer
 ###########################
 # isort: split
 
-from model.point_e_model.configs.config import load_config, make_sample_density
 from model.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
 from model.point_e_model.diffusion.sampler import PointCloudSampler
 from model.point_e_model.evals.metrics import *
 from model.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
-from model.point_e_model.models.download import load_checkpoint
 from model.point_e_model.util import n_params
 from model.point_e_model.util.common import get_linear_scheduler
 from model.point_e_model.util.plotting import plot_point_cloud

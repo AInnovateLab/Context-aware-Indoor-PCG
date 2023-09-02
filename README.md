@@ -27,11 +27,16 @@ ln -s /media/data1/share/datasets/sr3d datasets/sr3d
 ```
 
 ## Setup
+Create environment:
+```
+conda create -n instruct-insertion python=3.9
+conda activate instruct-insertion
+pip install -r requirements.txt
+```
 
-Install cpp extensions for pointnet:
+Next, install cpp extensions for pointnet:
 ```shell
+conda install -c conda-forge cudatoolkit-dev
 cd instruct-insertion/openpoints/cpp/pointnet2_batch
 python setup.py install
 ```
-
-TODO: add requirements.txt or conda env xml.
