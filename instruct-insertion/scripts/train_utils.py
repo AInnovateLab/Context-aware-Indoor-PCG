@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
+from model.point_e_model.diffusion.sampler import PointCloudSampler
 from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from transformers import BatchEncoding
 
@@ -30,7 +31,7 @@ def single_epoch_train(
     accelerator: accelerate.Accelerator,
     MVT3DVG: ReferIt3DNet_transformer,
     point_e: nn.Module,
-    sampler,
+    sampler: PointCloudSampler,
     data_loader,
     optimizer,
     device: torch.device,
@@ -64,8 +65,7 @@ def single_epoch_train(
 
         # NOTE - This is the point_e part
         # train diffusion
-        step = 0
-        reals = batch["tgt_pc"]  # (B, P, 6 or 7)
+        reals = batch["tgt_pc"][:, :, :6]  # (B, P, 6 or 7)
         cond = batch["text"]  # List of str
 
         # TODO - Here we need to reshape the tensor from MVT3DVG
@@ -73,19 +73,6 @@ def single_epoch_train(
 
         # TODO - Here we add the tensor from MVT3DVG to point_e
         losses = sampler.loss_texts(mvt_feats, reals, cond, reals.shape[0])
-
-        # NOTE - logger and model saving, this need to be reconsider
-        # if env.is_master() and step % config["echo_every"] == 0:
-        #     logger.info(
-        #         f"Epoch: {epoch}, step: {step}, lr:{cur_lr:.6f}, losses: {losses.item():g}"
-        #     )
-        #     writer.add_scalar("losses", losses.item(), global_step=step)
-
-        # if config["evaluate_every"] > 0 and step > 0 and step % config["evaluate_every"] == 0:
-        #     test(step)
-        # if env.is_master() and step > 0 and step % config["save_every"] == 0:
-        #     save()
-        step += 1
 
         # TODO - Redesign the loss function, should we put them together?
         # continue training MVT3DVG

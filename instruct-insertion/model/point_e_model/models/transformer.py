@@ -250,12 +250,17 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         )
         self.cond_drop_prob = cond_drop_prob
 
+        self.input_feat_proj = nn.Linear(
+            kwargs.get("mvt_feature_dim", 768), self.clip.feature_dim, device=device, dtype=dtype
+        )
+
     def cached_model_kwargs(self, batch_size: int, model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         with torch.no_grad():
             return dict(embeddings=self.clip(batch_size, **model_kwargs))
 
     def forward(
         self,
+        input_feats: torch.Tensor,
         x: torch.Tensor,
         t: torch.Tensor,
         images: Optional[Iterable[Optional[ImageType]]] = None,
@@ -263,7 +268,8 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         embeddings: Optional[Iterable[Optional[torch.Tensor]]] = None,
     ):
         """
-        :param x: an [N x C x T] tensor.
+        :param input_feats: an [N, 4, # of point cloud objects + 1, input_dim=768]
+        :param x: an [N x C=6 x T=1024] tensor.
         :param t: an [N] tensor.
         :param images: a batch of images to condition on.
         :param texts: a batch of texts to condition on.
@@ -271,11 +277,14 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         :return: an [N x C' x T] tensor.
         """
         assert x.shape[-1] == self.n_ctx
-
         t_embed = self.time_embed(timestep_embedding(t, self.backbone.width))
         # TODO - Add position vector into clip_out to supervise
-        # add and linear
+        input_feats = input_feats[:, :, 0, :]
+        input_feats = input_feats.mean(dim=1)  # N, 768
+        input_feats = self.input_feat_proj(input_feats)
+
         clip_out = self.clip(batch_size=len(x), images=images, texts=texts, embeddings=embeddings)
+        clip_out = clip_out + input_feats
         assert len(clip_out.shape) == 2 and clip_out.shape[0] == x.shape[0]
 
         if self.training:

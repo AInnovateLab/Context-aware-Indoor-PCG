@@ -40,6 +40,7 @@ MODEL_CONFIGS = {
         "token_cond": True,
         "width": 512,
         "cache_dir": "./point_e_model_cache/",
+        "mvt_feature_dim": 768,
     },
     "base40M-textvec-3channel": {
         "cond_drop_prob": 0.1,
