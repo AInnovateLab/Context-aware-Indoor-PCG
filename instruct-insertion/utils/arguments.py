@@ -173,7 +173,6 @@ def parse_arguments(notebook_options=None):
     parser.add_argument("--decoder-layer-num", type=int, default=4)
     parser.add_argument("--decoder-nhead-num", type=int, default=8)
 
-    parser.add_argument("--object-latent-dim", type=int, default=768)
     parser.add_argument("--inner-dim", type=int, default=768)
 
     parser.add_argument("--dropout-rate", type=float, default=0.15)

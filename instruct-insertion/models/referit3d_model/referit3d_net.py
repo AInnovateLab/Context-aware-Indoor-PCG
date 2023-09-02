@@ -110,7 +110,6 @@ class ReferIt3DNet_transformer(nn.Module):
         self.decoder_layer_num = args.decoder_layer_num
         self.decoder_nhead_num = args.decoder_nhead_num
 
-        self.object_dim = args.object_latent_dim
         self.inner_dim = args.inner_dim
 
         self.dropout_rate = args.dropout_rate
@@ -134,6 +133,7 @@ class ReferIt3DNet_transformer(nn.Module):
             act_args=edict({"act": "relu", "inplace": True}),
             norm_args=edict({"norm": "bn"}),
         )
+        self.obj_encoder_agg_proj = nn.Linear(4 * 512, self.inner_dim)
         self.point_trans = False
 
         self.language_encoder = BertModel.from_pretrained(self.bert_pretrain_path)
@@ -169,12 +169,12 @@ class ReferIt3DNet_transformer(nn.Module):
         if not self.label_lang_sup:
             self.obj_clf = MLP(
                 self.inner_dim,
-                [self.object_dim, self.object_dim, n_obj_classes],
+                [self.inner_dim, self.inner_dim, n_obj_classes],
                 dropout_rate=self.dropout_rate,
             )
 
         self.obj_feature_mapping = nn.Sequential(
-            nn.Linear(self.object_dim, self.inner_dim),
+            nn.Linear(self.inner_dim, self.inner_dim),
             nn.LayerNorm(self.inner_dim),
         )
 
@@ -284,18 +284,21 @@ class ReferIt3DNet_transformer(nn.Module):
             batch["ctx_pc"],
             torch.concat((batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1),
         )
-        B, N, P = obj_points.shape[:3]
+        B, N, P, D = obj_points.shape
 
         ## obj_encoding
-        objects_features = get_siamese_features(
-            self.obj_encoder,
-            obj_points,
-            aggregator=torch.stack,
-            batch_pnet=True,
-        )
+        objects_features = self.obj_encoder.forward_cls_feat(
+            {
+                "pos": obj_points[:, :, :, :3].reshape(B * N, P, -1).contiguous(),
+                "x": obj_points[:, :, :, :].reshape(B * N, P, -1).transpose(1, 2).contiguous(),
+            }
+        )  # (B * N, 512, 4)
+        objects_features = self.obj_encoder_agg_proj(objects_features.reshape(B * N, -1)).reshape(
+            B, N, -1
+        )  # (B, N, C)
 
         ## obj_encoding
-        obj_feats = self.obj_feature_mapping(objects_features)
+        obj_feats = objects_features
         box_infos = self.box_feature_mapping(boxs)
         obj_infos = obj_feats[:, None].repeat(1, self.view_number, 1, 1) + box_infos
 
@@ -318,7 +321,9 @@ class ReferIt3DNet_transformer(nn.Module):
 
         ## multi-modal_fusion
         cat_infos = obj_infos.reshape(B * self.view_number, -1, self.inner_dim)
-        cat_infos = torch.cat([self.locate_token, cat_infos], dim=1)
+        cat_infos = torch.cat(
+            [self.locate_token.repeat(B * self.view_number, 1, 1), cat_infos], dim=1
+        )
         mem_infos = (
             lang_infos[:, None]
             .repeat(1, self.view_number, 1, 1)
