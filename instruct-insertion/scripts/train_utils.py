@@ -8,8 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
-from model.point_e_model.diffusion.sampler import PointCloudSampler
-from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
+from models.point_e_model.diffusion.sampler import PointCloudSampler
+from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from transformers import BatchEncoding
 
 

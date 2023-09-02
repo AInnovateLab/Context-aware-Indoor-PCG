@@ -251,11 +251,13 @@ def parse_arguments(notebook_options=None):
             apply_configs(args, configs_dict)
 
     # Print them nicely
-    logger = get_logger(__name__)
-    logger.info(pprint.pformat(args))
+    # logger = get_logger(__name__)
+    # logger.info(pprint.pformat(args))
+    print(pprint.pformat(args))
 
     if args.save_args:
         out = osp.join(args.project_top_dir, args.project_name, "config.json.txt")
+        create_dir(osp.join(args.project_top_dir, args.project_name))
         with open(out, "w") as f_out:
             json.dump(vars(args), f_out, indent=4, sort_keys=True)
 

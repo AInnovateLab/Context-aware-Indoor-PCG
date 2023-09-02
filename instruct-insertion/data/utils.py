@@ -63,8 +63,8 @@ def unpickle_data(filepath: PathLike) -> Generator[Any, None, None]:
     with open(filepath, "rb") as in_file:
         size = pickle.load(in_file)
 
-    for _ in range(size):
-        yield pickle.load(in_file)
+        for _ in range(size):
+            yield pickle.load(in_file)
 
 
 def create_dir(dir_path: PathLike):

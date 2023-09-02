@@ -17,7 +17,6 @@ from .utils import (
     decode_stimulus_string,
     infer_floor_z_coord,
     instance_labels_of_context,
-    max_io_workers,
     normalize_pc,
     sample_scan_object,
 )

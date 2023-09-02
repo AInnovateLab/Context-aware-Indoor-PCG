@@ -5,9 +5,11 @@ async-timeout==4.0.3
 attrs==23.1.0
 certifi==2022.12.7
 charset-normalizer==2.1.1
+clip @ git+https://github.com/openai/CLIP.git@a1d071733d7111c9c014f024669f959182114e33
 cmake==3.25.0
 contourpy==1.1.0
 cycler==0.11.0
+Cython==0.29.28
 datasets==2.14.4
 dill==0.3.7
 easydict==1.10
@@ -17,6 +19,8 @@ filelock==3.9.0
 fonttools==4.42.1
 frozenlist==1.4.0
 fsspec==2023.6.0
+ftfy==6.1.1
+h5py==3.6.0
 huggingface-hub==0.16.4
 idna==3.4
 importlib-resources==6.0.1
@@ -28,11 +32,14 @@ MarkupSafe==2.1.2
 matplotlib==3.8.0rc1
 mpmath==1.2.1
 multidict==6.0.4
+multimethod==1.7
 multiprocess==0.70.15
 networkx==3.0
+ninja==1.10.2.3
 numpy==1.24.1
 packaging==23.1
 pandas==2.1.0
+pickleshare==0.7.5
 Pillow==9.3.0
 plyfile==1.0.1
 pointnet2-cuda==0.0.0
@@ -51,6 +58,7 @@ safetensors==0.3.3
 scikit-learn==1.3.0
 scipy==1.11.2
 shapely==2.0.1
+shortuuid==1.0.11
 six==1.16.0
 sympy==1.11.1
 symspellpy==6.7.7
@@ -67,6 +75,7 @@ triton==2.0.0
 typing_extensions==4.4.0
 tzdata==2023.3
 urllib3==1.26.13
+wcwidth==0.2.6
 xxhash==3.3.0
 yarl==1.9.2
 zipp==3.16.2

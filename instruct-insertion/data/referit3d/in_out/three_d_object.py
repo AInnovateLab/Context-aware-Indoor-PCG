@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, List
 
 import numpy as np
 import torch
-from pointnet2_ops import pointnet2_utils
 from shapely.geometry import LineString, Polygon
 from sklearn.neighbors import NearestNeighbors
 

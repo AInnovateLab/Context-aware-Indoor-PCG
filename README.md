@@ -28,15 +28,21 @@ ln -s /media/data1/share/datasets/sr3d datasets/sr3d
 
 ## Setup
 Create environment:
-```
+```shell
 conda create -n instruct-insertion python=3.9
 conda activate instruct-insertion
+conda install -c conda-forge cudatoolkit-dev
 pip install -r requirements.txt
+```
+
+Install chamfer: (TODO, remove this unnecessary dependency)
+```shell
+cd instruct-insertion/openpoints/cpp/chamfer_dist
+python setup.py install
 ```
 
 Next, install cpp extensions for pointnet:
 ```shell
-conda install -c conda-forge cudatoolkit-dev
 cd instruct-insertion/openpoints/cpp/pointnet2_batch
 python setup.py install
 ```

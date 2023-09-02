@@ -44,10 +44,10 @@ from train_utils import single_epoch_train
 #                                #
 ##################################
 # isort: split
-from model.referit3d_model.referit3d_net import ReferIt3DNet_transformer
+from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from transformers import BatchEncoding, BertTokenizer
 
-# from model.referit3d_model.utils.tf_visualizer import Visualizer
+# from models.referit3d_model.utils.tf_visualizer import Visualizer
 
 ###########################
 #                         #
@@ -56,14 +56,13 @@ from transformers import BatchEncoding, BertTokenizer
 ###########################
 # isort: split
 
-from model.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
-from model.point_e_model.diffusion.sampler import PointCloudSampler
-from model.point_e_model.evals.metrics import *
-from model.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
-from model.point_e_model.util import n_params
-from model.point_e_model.util.common import get_linear_scheduler
-from model.point_e_model.util.plotting import plot_point_cloud
-from model.point_e_model.util.point_cloud import PointCloud
+from models.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
+from models.point_e_model.diffusion.sampler import PointCloudSampler
+from models.point_e_model.evals.metrics import *
+from models.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
+from models.point_e_model.util.common import get_linear_scheduler
+from models.point_e_model.util.plotting import plot_point_cloud
+from models.point_e_model.util.point_cloud import PointCloud
 
 #######################
 #                     #
@@ -81,13 +80,13 @@ def main():
     args = parse_arguments()
 
     # TODO: add log file
-    init_logger()
-    logger = get_logger(__name__)
     acc_config = ProjectConfiguration(
         project_dir=osp.join(args.project_top_dir, args.project_name),
         logging_dir=osp.join(args.project_top_dir, "logs"),
     )
     accelerator = Accelerator(log_with="tensorboard", project_config=acc_config)
+    init_logger()
+    logger = get_logger(__name__)
     device = accelerator.device
     seed_everything(args.random_seed)
     tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
