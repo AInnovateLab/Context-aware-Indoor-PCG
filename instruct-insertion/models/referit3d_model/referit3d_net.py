@@ -5,6 +5,7 @@ from typing import Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from easydict import EasyDict as edict
 from openpoints.models.backbone.pointnext import PointNextEncoder
 from torch import nn
 from transformers import (
@@ -124,14 +125,14 @@ class ReferIt3DNet_transformer(nn.Module):
             strides=[1, 4, 4, 4, 4],
             nsample=32,
             radius=0.05,
-            aggr_args=dict(feature_type="dp_fj", reduction="max"),
-            group_args=dict(NAME="ballquery", normalize_dp=True),
+            aggr_args=edict({"feature_type": "dp_fj", "reduction": "max"}),
+            group_args=edict({"NAME": "ballquery", "normalize_dp": True}),
             sa_layers=1,
             sa_use_res=False,
             expansion=4,
-            conv_args=dict(order="onv-norm-act"),
-            act_args=dict(act="relu"),
-            norm_args=dict(norm="bn"),
+            conv_args=edict({"order": "conv-norm-act"}),
+            act_args=edict({"act": "relu", "inplace": True}),
+            norm_args=edict({"norm": "bn"}),
         )
         self.point_trans = False
 
@@ -200,17 +201,20 @@ class ReferIt3DNet_transformer(nn.Module):
 
     @torch.no_grad()
     def aug_input(self, input_points, box_infos):
-        input_points = input_points.float().to(self.device)
-        box_infos = box_infos.float().to(self.device)
+        input_points = input_points.float()
+        box_infos = box_infos.float()
+        device = input_points.device
         xyz = input_points[:, :, :, :3]
         bxyz = box_infos[:, :, :3]  # B,N,3
         B, N, P = xyz.shape[:3]
-        rotate_theta_arr = torch.Tensor(
-            [i * 2.0 * np.pi / self.rotate_number for i in range(self.rotate_number)]
-        ).to(self.device)
-        view_theta_arr = torch.Tensor(
-            [i * 2.0 * np.pi / self.view_number for i in range(self.view_number)]
-        ).to(self.device)
+        rotate_theta_arr = torch.tensor(
+            [i * 2.0 * np.pi / self.rotate_number for i in range(self.rotate_number)],
+            device=device,
+        )
+        view_theta_arr = torch.tensor(
+            [i * 2.0 * np.pi / self.view_number for i in range(self.view_number)],
+            device=device,
+        )
 
         # rotation
         if self.training:
@@ -220,11 +224,9 @@ class ReferIt3DNet_transformer(nn.Module):
             ]  # 4 direction rotate aug
             cos_theta = torch.cos(theta)
             sin_theta = torch.sin(theta)
-            rotate_matrix = (
-                torch.Tensor([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
-                .to(self.device)[None]
-                .repeat(B, 1, 1)
-            )
+            rotate_matrix = torch.tensor(
+                [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], device=device
+            )[None].repeat(B, 1, 1)
             rotate_matrix[:, 0, 0] = cos_theta
             rotate_matrix[:, 0, 1] = -sin_theta
             rotate_matrix[:, 1, 0] = sin_theta
@@ -239,13 +241,14 @@ class ReferIt3DNet_transformer(nn.Module):
         bsize = box_infos[:, :, -1:]
         boxs = []
         for theta in view_theta_arr:
-            rotate_matrix = torch.Tensor(
+            rotate_matrix = torch.tensor(
                 [
                     [math.cos(theta), -math.sin(theta), 0.0],
                     [math.sin(theta), math.cos(theta), 0.0],
                     [0.0, 0.0, 1.0],
-                ]
-            ).to(self.device)
+                ],
+                device=device,
+            )
             rxyz = torch.matmul(bxyz.reshape(B * N, 3), rotate_matrix).reshape(B, N, 3)
             boxs.append(torch.cat([rxyz, bsize], dim=-1))
         boxs = torch.stack(boxs, dim=1)
@@ -279,7 +282,7 @@ class ReferIt3DNet_transformer(nn.Module):
         ## rotation augmentation and multi_view generation
         obj_points, boxs = self.aug_input(
             batch["ctx_pc"],
-            torch.concat(batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None], dim=-1),
+            torch.concat((batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1),
         )
         B, N, P = obj_points.shape[:3]
 

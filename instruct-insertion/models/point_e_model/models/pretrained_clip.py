@@ -35,16 +35,16 @@ class ImageCLIP(nn.Module):
         import clip
 
         # print(cache_dir)
-        #         self.clip_model, self.preprocess = clip.load(
-        #             clip_name, device=device, download_root=cache_dir or default_cache_dir()
-        #         )
+        self.clip_model, self.preprocess = clip.load(
+            clip_name, device=device, download_root=cache_dir or default_cache_dir()
+        )
 
-        if clip_name == "ViT-L/14":
-            self.clip_model, self.preprocess = clip.load(
-                "/mnt/cache/yinzhenfei/sunqinghong/point-e/point_e_model_cache/ViT-L-14.pt", device
-            )
-        else:
-            assert False
+        # if clip_name == "ViT-L/14":
+        #     self.clip_model, self.preprocess = clip.load(
+        #         "ViT-L/14", device
+        #     )
+        # else:
+        #     assert False
         self.clip_name = clip_name
 
         if dtype is not None:

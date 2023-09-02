@@ -103,7 +103,15 @@ def main():
     # Prepare data & compute auxiliary meta-information.
     all_scans_in_dict = trim_scans_per_referit3d_data_(referit_data, all_scans_in_dict)
     mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
-    data_loaders = make_data_loaders(args, referit_data, class_to_idx, all_scans_in_dict, mean_rgb)
+    data_loaders = make_data_loaders(
+        args=args,
+        accelerator=accelerator,
+        referit_data=referit_data,
+        class_to_idx=class_to_idx,
+        scans=all_scans_in_dict,
+        mean_rgb=mean_rgb,
+        tokenizer=tokenizer,
+    )
 
     # Prepare the Listener
     n_classes = len(class_to_idx) - 1  # -1 to ignore the <pad> class
@@ -134,8 +142,17 @@ def main():
     if not args.label_lang_sup:
         param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
 
-    # construct model
-    point_e = model_from_config(MODEL_CONFIGS[args.point_e_model], device)
+    # # construct model
+    # if accelerator.is_local_main_process:
+    #     from models.point_e_model.models.download import MODEL_PATHS
+    #     # check model cache
+    #     if not osp.exists(osp.join(args.project_top_dir, "cache", "point_e_model", )):
+    #     logger.info(f"Downloading Point-E model: {args.point_e_model}.")
+    #     logger
+    point_e_config = MODEL_CONFIGS[args.point_e_model]
+    point_e_config["cache_dir"] = osp.join(args.project_top_dir, "cache", "point_e_model")
+    with accelerator.local_main_process_first():
+        point_e = model_from_config(point_e_config, device)
     point_e.to(device)
 
     # construct diffusion
@@ -177,7 +194,6 @@ def main():
         sigma_min=[1e-3],
         sigma_max=[120],
         s_churn=[3],
-        model_kwargs_key_filter=[args.cond],
     )
 
     # Resume training

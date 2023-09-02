@@ -17,7 +17,7 @@ def init_logger(
 ):
     handlers = list()
     handlers.append(logging.StreamHandler(sys.stdout))
-    fmt_str = "[%(levelname)s] %(asctime)s - %(message)s"
+    fmt_str = "[%(levelname)s, %(name)s] %(asctime)s - %(message)s"
 
     # Add logging to file handler
     if log_file is not None or log_dir is not None:
@@ -26,4 +26,4 @@ def init_logger(
         file_handler.setFormatter(logging.Formatter(fmt_str))
         handlers.append(file_handler)
 
-    logging.basicConfig(level=level, format=fmt_str, handlers=handlers)
+    logging.basicConfig(level=level, format=fmt_str, handlers=handlers, datefmt="%Y-%m-%d %H:%M:%S")

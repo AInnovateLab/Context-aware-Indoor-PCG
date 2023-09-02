@@ -241,6 +241,7 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         cache_dir: Optional[str] = None,
         **kwargs,
     ):
+        mvt_feature_dim = kwargs.pop("mvt_feature_dim", 768)
         super().__init__(device=device, dtype=dtype, n_ctx=n_ctx + int(token_cond), **kwargs)
         self.n_ctx = n_ctx
         self.token_cond = token_cond
@@ -251,7 +252,7 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         self.cond_drop_prob = cond_drop_prob
 
         self.input_feat_proj = nn.Linear(
-            kwargs.get("mvt_feature_dim", 768), self.clip.feature_dim, device=device, dtype=dtype
+            mvt_feature_dim, self.clip.feature_dim, device=device, dtype=dtype
         )
 
     def cached_model_kwargs(self, batch_size: int, model_kwargs: Dict[str, Any]) -> Dict[str, Any]:

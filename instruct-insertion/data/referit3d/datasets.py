@@ -101,7 +101,7 @@ class ReferIt3DDataset(Dataset):
             [o.get_bbox().center() for o in context_w_tgt]
         )  # (# of objects, 3)
         # the max dist from the center point to the farthest point in the bbox
-        tgt_box_max_dist_w_tgt = np.array((len(context_w_tgt),))  # (# of objects,)
+        tgt_box_max_dist_w_tgt = np.zeros((len(context_w_tgt),))  # (# of objects,)
         for i, o in enumerate(context_w_tgt):
             tmp = o.get_pc() - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
             tgt_box_max_dist_w_tgt[i] = np.linalg.norm(tmp, axis=1, ord=2).max()
@@ -121,7 +121,7 @@ class ReferIt3DDataset(Dataset):
         # context
         # NOTE: take care of padding, so that a batch has same # of objects across scans.
         res["ctx_mask"] = np.array(
-            [True] * len(context) + [False] * (self.max_context_objects - len(context)), type=bool
+            [True] * len(context) + [False] * (self.max_context_objects - len(context)), dtype=bool
         )
         res["ctx_class"] = instance_labels_of_context(
             context,
@@ -201,14 +201,17 @@ def make_data_loaders(
         """
         Hook for customizing the way datasets are merged.
         """
+        # leave "tokens" alone
+        tokens = [b.pop("tokens") for b in batch]
         batch = default_collate(batch)
+
         if accelerator.mixed_precision == "fp8":
             pad_to_multiple_of = 16
         else:
             pad_to_multiple_of = 8
 
         batch["tokens"] = tokenizer.pad(
-            batch["tokens"],
+            tokens,
             padding="longest",
             max_length=args.max_seq_len,
             pad_to_multiple_of=pad_to_multiple_of,
@@ -229,6 +232,7 @@ def make_data_loaders(
             points_per_object=args.points_per_object,
             max_context_objects=args.max_context_objects,
             class_to_idx=class_to_idx,
+            tokenizer=tokenizer,
             object_transformation=object_transformation,
             height_append=args.height_append,
         )
