@@ -5,8 +5,8 @@ import os.path as osp
 import sys
 import time
 
-import tqdm
 from torch import optim
+from tqdm import tqdm
 
 sys.path.append(f"{osp.dirname(__file__)}/..")
 
@@ -184,14 +184,17 @@ def main():
     # Resume training
     if args.resume_path:
         accelerator.load_state(args.resume_path)
+        logger.info(f"Resuming training from {args.resume_path}.", main_process_only=True)
+        start_training_epoch = lr_scheduler.last_epoch + 1
+        logger.info(f"Starting from epoch {start_training_epoch}.", main_process_only=True)
+        # TODO - search in the same folder for the best model metrics so far
+    else:
+        start_training_epoch = 0
 
-    start_training_epoch = lr_scheduler.last_epoch + 1
     best_test_acc = -1
     best_test_epoch = -1
     last_test_acc = -1
     last_test_epoch = -1
-
-    evaluate.load
 
     # Training.
     if args.mode == "train":
@@ -199,25 +202,25 @@ def main():
         with accelerator.main_process_first():
             # load metrics
             metrics = {
-                "referit3d_loc_acc": evaluate.load(
+                "rf3d_loc_estimate": evaluate.load(
+                    LOCAL_METRIC_PATHS["loc_estimate"],
+                    process_id=accelerator.process_index,
+                    num_process=accelerator.num_processes,
+                ),
+                "rf3d_cls_acc": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
                 ),
-                "referit3d_cls_acc": evaluate.load(
-                    LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
-                    process_id=accelerator.process_index,
-                    num_process=accelerator.num_processes,
-                ),
-                "referit3d_txt_acc": evaluate.load(
+                "rf3d_txt_acc": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
                 ),
             }
 
-        with tqdm.tqdm(
-            range(start_training_epoch, args.max_train_epochs + 1),
+        with tqdm(
+            range(start_training_epoch, args.max_train_epochs),
             desc="epochs",
             disable=not accelerator.is_main_process,
         ) as bar:
@@ -267,9 +270,12 @@ def main():
                 lr_scheduler.step()
 
                 # TODO - Also save the best model
-                accelerator.save_state(
-                    osp.join(args.project_top_dir, args.project_name, "checkpoints", "last_model")
-                )
+                if accelerator.is_main_process:
+                    accelerator.save_state(
+                        osp.join(
+                            args.project_top_dir, args.project_name, "checkpoints", "last_model"
+                        )
+                    )
 
                 # TODO - Fix Log
                 # if best_test_acc < eval_acc:

@@ -1,5 +1,6 @@
 import math
 from collections import defaultdict
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -248,7 +249,7 @@ class ReferIt3DNet_transformer(nn.Module):
         boxs = torch.stack(boxs, dim=1)
         return input_points, boxs
 
-    def compute_loss(self, batch, CLASS_LOGITS, LANG_LOGITS, LOGITS, AUX_LOGITS=None):
+    def compute_loss(self, batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, AUX_LOGITS=None):
         # CLASS_LOGITS.transpose(2, 1) (B,C=525,D=52) <--> batch['class_labels'] (B,D)
         obj_clf_loss = self.class_logits_loss(CLASS_LOGITS.transpose(2, 1), batch["ctx_class"])
 
@@ -256,12 +257,12 @@ class ReferIt3DNet_transformer(nn.Module):
         lang_clf_loss = self.lang_logits_loss(LANG_LOGITS, batch["tgt_class"])
 
         # center loss
-        # LOGITS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
-        locate_loss = self.locate_loss(LOGITS[:, :3], batch["tgt_box_center"])
+        # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
+        locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
 
         # dist loss
-        # LOGITS[:, -1] (B,) <--> batch['tgt_box_center'] (B,)
-        dist_loss = self.dist_loss(LOGITS[:, -1], batch["tgt_box_max_dist"])
+        # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_center'] (B,)
+        dist_loss = self.dist_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
 
         total_loss = (
             locate_loss
@@ -272,7 +273,7 @@ class ReferIt3DNet_transformer(nn.Module):
 
         return total_loss
 
-    def first_stage_forward(self, batch: dict):
+    def first_stage_forward(self, batch: dict) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         ## rotation augmentation and multi_view generation
         obj_points, boxs = self.aug_input(
             batch["ctx_pc"],
@@ -282,7 +283,7 @@ class ReferIt3DNet_transformer(nn.Module):
 
         ## obj_encoding
         objects_features = get_siamese_features(
-            self.object_encoder,
+            self.obj_encoder,
             obj_points,
             aggregator=torch.stack,
             batch_pnet=True,
@@ -323,9 +324,13 @@ class ReferIt3DNet_transformer(nn.Module):
             .reshape(B, self.view_number, -1, self.inner_dim)
         )
 
+        # Returns: (B, V, N, C), (B, N, # of classes), (B, C)
         return out_feats, CLASS_LOGITS, LANG_LOGITS
 
-    def second_stage_forward(self, out_feats, batch, CLASS_LOGITS, LANG_LOGITS):
+    def second_stage_forward(
+        self, out_feats, batch, CLASS_LOGITS, LANG_LOGITS
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        B, V, N = out_feats.shape[:3]
         ## view_aggregation
         refer_feat = out_feats
         if self.aggregate_type == "avg":
@@ -336,7 +341,8 @@ class ReferIt3DNet_transformer(nn.Module):
             agg_feats = refer_feat.max(dim=1).values
 
         # return the center point of box and box max distance
-        LOGITS = self.box_layers(agg_feats)
-        LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOGITS)
+        # FIXME: the shape is (B, N, 4), but we dont want the `N` here. Check other detection tasks for ideas.
+        LOCATE_PREDS = self.box_layers(agg_feats.reshape(B * N, -1)).reshape(B, N, -1)
+        LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
 
-        return LOSS, LOGITS
+        return LOSS, LOCATE_PREDS

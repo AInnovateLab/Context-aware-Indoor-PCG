@@ -51,7 +51,6 @@ def single_epoch_train(
     """
 
     total_loss_list = list()
-    total_loss_weights = list()
 
     # Set the model in training mode
     MVT3DVG.train()
@@ -66,9 +65,8 @@ def single_epoch_train(
         # NOTE - This is the point_e part
         # train diffusion
         step = 0
-        reals = batch["pointcloud"]
-        reals = reals.to(device)
-        cond = batch["desc"]
+        reals = batch["tgt_pc"]  # (B, P, 6 or 7)
+        cond = batch["text"]  # List of str
 
         # TODO - Here we need to reshape the tensor from MVT3DVG
         mvt_feats = out_feats
@@ -91,51 +89,70 @@ def single_epoch_train(
 
         # TODO - Redesign the loss function, should we put them together?
         # continue training MVT3DVG
-        LOSS, LOGITS = MVT3DVG.second_stage_forward(out_feats, batch, CLASS_LOGITS, LANG_LOGITS)
+        LOSS, LOCATE_PREDS = MVT3DVG.second_stage_forward(
+            out_feats, batch, CLASS_LOGITS, LANG_LOGITS
+        )
         LOSS: torch.Tensor = LOSS.mean() + losses.mean()
 
-        res = {}
-        res["logits"] = LOGITS
-        res["class_logits"] = CLASS_LOGITS
-        res["lang_logits"] = LANG_LOGITS
         # Backward
         optimizer.zero_grad()
         accelerator.backward(LOSS)
         optimizer.step()
-        total_loss_list.append(LOSS.item())
 
         # Update the loss and accuracy meters
-        target = batch["target_pos"]
-
-        predictions = torch.argmax(res["logits"], dim=1)
+        locate_tgt = torch.concat(
+            (batch["tgt_box_center"], batch["tgt_box_max_dist"][:, None]), dim=-1
+        )
 
         # TODO: change target, and be careful of the pad item, and gather more
-        predictions, target = accelerator.gather_for_metrics((predictions, target))
+        (
+            LOSS,
+            LOCATE_PREDS,
+            CLASS_LOGITS,
+            LANG_LOGITS,
+            locate_tgt,
+            batch["ctx_class"],
+            batch["tgt_class"],
+        ) = accelerator.gather_for_metrics(
+            (
+                LOSS,
+                LOCATE_PREDS,
+                CLASS_LOGITS,
+                LANG_LOGITS,
+                locate_tgt,
+                batch["ctx_class"],
+                batch["tgt_class"],
+            )
+        )
 
-        metrics["referit3d_loc_acc"].add_batch(
-            predictions=predictions,
-            references=target,
+        total_loss_list.append(LOSS.item())
+
+        metrics["rf3d_loc_estimate"].add_batch(
+            predictions=LOCATE_PREDS,
+            references=locate_tgt,
         )
 
         if args.obj_cls_alpha > 0:
-            metrics["referit3d_cls_acc"].add_batch(
-                predictions=res["class_logits"].argmax(-1).flatten(),
-                references=batch["class_labels"].flatten(),
+            metrics["rf3d_cls_acc"].add_batch(
+                predictions=CLASS_LOGITS.argmax(-1).flatten(),
+                references=batch["ctx_class"].flatten(),
             )
 
         if args.lang_cls_alpha > 0:
-            metrics["referit3d_txt_acc"].add_batch(
-                predictions=res["lang_logits"].argmax(-1),
-                references=batch["target_class"],
+            metrics["rf3d_txt_acc"].add_batch(
+                predictions=LANG_LOGITS.argmax(-1),
+                references=batch["tgt_class"],
             )
 
-    # metrics["train_total_loss"] = total_loss_mtr.avg
-    # metrics["train_referential_acc"] = ref_acc_mtr.avg
-    # metrics["train_object_cls_acc"] = cls_acc_mtr.avg
-    # metrics["train_txt_cls_acc"] = txt_acc_mtr.avg
-    return {
-        "referit3d_loss": np.mean(total_loss_list),
-        "referit3d_loc_acc": metrics["referit3d_loc_acc"].compute(ignore=pad_idx),
-        "referit3d_cls_acc": metrics["referit3d_cls_acc"].compute(ignore=pad_idx),
-        "referit3d_txt_acc": metrics["referit3d_txt_acc"].compute(ignore=pad_idx),
+    # metrics
+    loc_estimate = metrics["rf3d_loc_estimate"].compute()
+
+    ret = {
+        "rf3d_loss": np.mean(total_loss_list),
+        "rf3d_loc_dist": loc_estimate["dist"],
+        "rf3d_loc_radius_diff": loc_estimate["radius_diff"],
+        "rf3d_cls_acc": metrics["rf3d_cls_acc"].compute(ignore=pad_idx),
+        "rf3d_txt_acc": metrics["rf3d_txt_acc"].compute(ignore=pad_idx),
     }
+
+    return ret
