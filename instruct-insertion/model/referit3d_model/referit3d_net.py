@@ -190,6 +190,8 @@ class ReferIt3DNet_transformer(nn.Module):
             dropout_rate=self.dropout_rate,
         )
 
+        self.locate_token = nn.Parameter(torch.randn(1, 1, self.inner_dim))
+
         self.locate_loss = nn.L1Loss()
         self.dist_loss = nn.L1Loss()
         # self.dist_loss = nn.MSELoss()
@@ -313,6 +315,7 @@ class ReferIt3DNet_transformer(nn.Module):
 
         ## multi-modal_fusion
         cat_infos = obj_infos.reshape(B * self.view_number, -1, self.inner_dim)
+        cat_infos = torch.cat([self.locate_token, cat_infos], dim=1)
         mem_infos = (
             lang_infos[:, None]
             .repeat(1, self.view_number, 1, 1)
@@ -324,7 +327,7 @@ class ReferIt3DNet_transformer(nn.Module):
             .reshape(B, self.view_number, -1, self.inner_dim)
         )
 
-        # Returns: (B, V, N, C), (B, N, # of classes), (B, C)
+        # Returns: (B, V, N+1, C), (B, N, # of classes), (B, C)
         return out_feats, CLASS_LOGITS, LANG_LOGITS
 
     def second_stage_forward(
@@ -334,15 +337,15 @@ class ReferIt3DNet_transformer(nn.Module):
         ## view_aggregation
         refer_feat = out_feats
         if self.aggregate_type == "avg":
-            agg_feats = (refer_feat / self.view_number).sum(dim=1)
+            agg_feats = refer_feat.mean(dim=1)
         elif self.aggregate_type == "avgmax":
-            agg_feats = (refer_feat / self.view_number).sum(dim=1) + refer_feat.max(dim=1).values
+            agg_feats = refer_feat.mean(dim=1) + refer_feat.max(dim=1)
         else:
             agg_feats = refer_feat.max(dim=1).values
 
         # return the center point of box and box max distance
-        # FIXME: the shape is (B, N, 4), but we dont want the `N` here. Check other detection tasks for ideas.
-        LOCATE_PREDS = self.box_layers(agg_feats.reshape(B * N, -1)).reshape(B, N, -1)
+        agg_feats = agg_feats[:, 0, :]
+        LOCATE_PREDS = self.box_layers(agg_feats)
         LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
 
         return LOSS, LOCATE_PREDS
