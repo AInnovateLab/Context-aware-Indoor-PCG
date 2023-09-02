@@ -1,0 +1,11 @@
+{
+    "mode": "train",
+    "max_epoches": 100,
+    "batch_size": 16,
+    "num_workers": 8,
+    "random_seed": 2023,
+    "mvt_model": "referIt3DNet_transformer",
+    "bert_pretrain_path": "bert-base-uncased",
+    "point_e_model": "base40M-textvec",
+    "lr_sched": "linear"
+}

@@ -62,7 +62,7 @@ def single_epoch_train(
         move_batch_to_device_(batch, device)
 
         # Forward pass
-        out_feats, CLASS_LOGITS, LANG_LOGITS = MVT3DVG.first_stage_forward(batch, epoch)
+        out_feats, CLASS_LOGITS, LANG_LOGITS = MVT3DVG.first_stage_forward(batch)
 
         # NOTE - This is the point_e part
         # train diffusion

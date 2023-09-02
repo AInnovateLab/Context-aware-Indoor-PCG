@@ -97,15 +97,6 @@ class ReferIt3DNet_transformer(nn.Module):
         super().__init__()
 
         self.bert_pretrain_path = args.bert_pretrain_path
-        self.cfg = dict(
-            {
-                "debug_model": args.debug_model,
-                "rank": args.rank,
-                "batch_pnet": args.batch_pnet,
-                "add_color": args.add_color,
-            }
-        )
-        print("____ init model: rank = {}".format(self.cfg["rank"]))
 
         self.view_number = args.view_number
         self.rotate_number = args.rotate_number
@@ -192,7 +183,15 @@ class ReferIt3DNet_transformer(nn.Module):
 
         self.class_name_tokens = class_name_tokens
 
-        self.logit_loss = nn.CrossEntropyLoss()
+        self.box_layers = MLP(
+            self.inner_dim,
+            [self.inner_dim, self.inner_dim, 4],
+            dropout_rate=self.dropout_rate,
+        )
+
+        self.locate_loss = nn.L1Loss()
+        self.dist_loss = nn.L1Loss()
+        # self.dist_loss = nn.MSELoss()
         self.lang_logits_loss = nn.CrossEntropyLoss()
         self.class_logits_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
@@ -250,68 +249,44 @@ class ReferIt3DNet_transformer(nn.Module):
         return input_points, boxs
 
     def compute_loss(self, batch, CLASS_LOGITS, LANG_LOGITS, LOGITS, AUX_LOGITS=None):
-        # LOGITS (B,D=52) <--> batch['target_pos'] (B,)
-        referential_loss = self.logit_loss(LOGITS, batch["target_pos"])
-
         # CLASS_LOGITS.transpose(2, 1) (B,C=525,D=52) <--> batch['class_labels'] (B,D)
-        obj_clf_loss = self.class_logits_loss(CLASS_LOGITS.transpose(2, 1), batch["class_labels"])
+        obj_clf_loss = self.class_logits_loss(CLASS_LOGITS.transpose(2, 1), batch["ctx_class"])
 
         # LANG_LOGITS (B, C=524) <--> batch['target_class'] (B,)
-        lang_clf_loss = self.lang_logits_loss(LANG_LOGITS, batch["target_class"])
+        lang_clf_loss = self.lang_logits_loss(LANG_LOGITS, batch["tgt_class"])
+
+        # center loss
+        # LOGITS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
+        locate_loss = self.locate_loss(LOGITS[:, :3], batch["tgt_box_center"])
+
+        # dist loss
+        # LOGITS[:, -1] (B,) <--> batch['tgt_box_center'] (B,)
+        dist_loss = self.dist_loss(LOGITS[:, -1], batch["tgt_box_max_dist"])
 
         total_loss = (
-            referential_loss
+            locate_loss
+            + dist_loss
             + self.obj_cls_alpha * obj_clf_loss
             + self.lang_cls_alpha * lang_clf_loss
         )
 
-        if self.cfg["debug_model"]:
-            # print
-            print(
-                "rank: {}. refer_loss: {:.2f}. obj_loss: {:.2f}. lang_loss: {:.2f}. all_loss: {:.2f}. ".format(
-                    self.cfg["rank"],
-                    referential_loss.item(),
-                    obj_clf_loss.item(),
-                    lang_clf_loss.item(),
-                    total_loss.item(),
-                )
-            )
         return total_loss
 
-    def first_stage_forward(self, batch: dict, epoch=None):
-        # batch['class_labels']: GT class of each obj
-        # batch['target_class']：GT class of target obj
-        # batch['target_pos']: GT id
-
-        self.device = self.obj_feature_mapping[0].weight.device
-
-        # torch.backends.cudnn.enabled = False
-
+    def first_stage_forward(self, batch: dict):
         ## rotation augmentation and multi_view generation
-        obj_points, boxs = self.aug_input(batch["objects"], batch["box_info"])
+        obj_points, boxs = self.aug_input(
+            batch["ctx_pc"],
+            torch.concat(batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None], dim=-1),
+        )
         B, N, P = obj_points.shape[:3]
 
         ## obj_encoding
-        if self.point_trans:
-            B, N, K, D = obj_points.shape
-            b_obj_points = obj_points.contiguous().view(-1, K, D)
-            o_obj_features = self.object_encoder(b_obj_points)
-
-            if self.cfg["add_color"]:
-                o_obj_features = self.cls_head_finetune(o_obj_features, b_obj_points)
-            else:
-                o_obj_features = self.cls_head_finetune(o_obj_features)
-            objects_features = o_obj_features.contiguous().view(B, N, o_obj_features.size(-1))
-            # --> B,N,C=768
-        else:
-            objects_features = get_siamese_features(
-                self.object_encoder,
-                obj_points,
-                aggregator=torch.stack,
-                batch_pnet=self.cfg["batch_pnet"],
-            )
-
-        # torch.backends.cudnn.enabled = True
+        objects_features = get_siamese_features(
+            self.object_encoder,
+            obj_points,
+            aggregator=torch.stack,
+            batch_pnet=True,
+        )
 
         ## obj_encoding
         obj_feats = self.obj_feature_mapping(objects_features)
@@ -328,12 +303,12 @@ class ReferIt3DNet_transformer(nn.Module):
             CLASS_LOGITS = self.obj_clf(obj_feats.reshape(B * N, -1)).reshape(B, N, -1)
 
         ## language_encoding
-        lang_tokens = batch["lang_tokens"]
+        lang_tokens = batch["tokens"]
         lang_infos = self.language_encoder(**lang_tokens)[0]
 
         # <LOSS>: lang_cls
         lang_features = lang_infos[:, 0]
-        LANG_LOGITS = self.language_clf(lang_infos[:, 0])
+        LANG_LOGITS = self.language_clf(lang_features)
 
         ## multi-modal_fusion
         cat_infos = obj_infos.reshape(B * self.view_number, -1, self.inner_dim)
@@ -360,8 +335,8 @@ class ReferIt3DNet_transformer(nn.Module):
         else:
             agg_feats = refer_feat.max(dim=1).values
 
-        # <LOSS>: ref_cls
-        LOGITS = self.object_language_clf(agg_feats).squeeze(-1)
+        # return the center point of box and box max distance
+        LOGITS = self.box_layers(agg_feats)
         LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOGITS)
 
         return LOSS, LOGITS
