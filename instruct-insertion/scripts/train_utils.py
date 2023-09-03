@@ -95,7 +95,7 @@ def single_epoch_train(
             )
         )
 
-        total_loss_list.append(LOSS.item())
+        total_loss_list.append(LOSS.mean())
 
         metrics["rf3d_loc_estimate"].add_batch(
             predictions=LOCATE_PREDS,

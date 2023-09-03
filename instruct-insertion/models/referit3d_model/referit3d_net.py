@@ -387,4 +387,4 @@ class ReferIt3DNet_transformer(nn.Module):
         LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
-        return ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS
+        return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()

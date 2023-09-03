@@ -33,7 +33,7 @@ from data.referit3d.in_out.neural_net_oriented import (
 ##################
 # isort: split
 import evaluate
-from accelerate import Accelerator
+from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import ProjectConfiguration, set_seed
 from metrics import LOCAL_METRIC_PATHS
 from torch import optim
@@ -84,7 +84,10 @@ def main():
         project_dir=osp.join(args.project_top_dir, args.project_name),
         logging_dir=osp.join(args.project_top_dir, "tf_logs"),
     )
-    accelerator = Accelerator(log_with="tensorboard", project_config=acc_config)
+    ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
+    accelerator = Accelerator(
+        log_with="tensorboard", project_config=acc_config, kwargs_handlers=[ddp_kwargs]
+    )
     # tracker setup
     accelerator.init_trackers(args.project_name, config=vars(args))
     # save log file only to main process
@@ -103,6 +106,11 @@ def main():
         f"Project {args.project_name} start at {project_start_time.strftime('%Y-%m-%d_%H-%M-%S')}",
         main_process_only=True,
     )
+    if accelerator.is_main_process and accelerator.num_processes > 1:
+        logger.info(
+            f"Distributed training with {accelerator.num_processes} processes.",
+            main_process_only=True,
+        )
     device = accelerator.device
     set_seed(args.random_seed)
     tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
@@ -257,16 +265,19 @@ def main():
                     LOCAL_METRIC_PATHS["loc_estimate"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
+                    experiment_id="rf3d_loc_estimate",
                 ),
                 "rf3d_cls_acc": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
+                    experiment_id="rf3d_cls_acc",
                 ),
                 "rf3d_txt_acc": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
+                    experiment_id="rf3d_txt_acc",
                 ),
             }
 
