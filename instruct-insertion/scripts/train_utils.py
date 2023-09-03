@@ -41,7 +41,7 @@ def single_epoch_train(
     epoch=None,
 ):
     rf3d_loss_list = list()
-    diff_loss_list = list()
+    point_e_loss_list = list()
     total_loss_list = list()
 
     # Set the model in training mode
@@ -100,7 +100,7 @@ def single_epoch_train(
         )
 
         rf3d_loss_list.append(RF3D_LOSS.mean())
-        diff_loss_list.append(losses.mean())
+        point_e_loss_list.append(losses.mean())
         total_loss_list.append(LOSS.mean())
 
         metrics["train_rf3d_loc_estimate"].add_batch(
@@ -130,7 +130,7 @@ def single_epoch_train(
     ret = {
         "train_total_loss": np.mean(total_loss_list),
         "train_rf3d_loss": np.mean(rf3d_loss_list),
-        "train_diff_loss": np.mean(diff_loss_list),
+        "train_point_e_loss": np.mean(point_e_loss_list),
         "train_rf3d_loc_dist": loc_estimate["dist"],
         "train_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
         "train_rf3d_cls_acc": metrics["train_rf3d_cls_acc"].compute(ignore=pad_idx),

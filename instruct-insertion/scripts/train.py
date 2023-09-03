@@ -59,7 +59,6 @@ from transformers import BatchEncoding, BertTokenizer
 
 from models.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
 from models.point_e_model.diffusion.sampler import PointCloudSampler
-from models.point_e_model.evals.metrics import *
 from models.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
 from models.point_e_model.util.common import get_linear_scheduler
 from models.point_e_model.util.plotting import plot_point_cloud
@@ -271,11 +270,11 @@ def main():
             num_process=accelerator.num_processes,
             experiment_id="test_rf3d_txt_acc",
         ),
-        "test_pairwise_cd": evaluate.load(
+        "test_point_e_pc_cd": evaluate.load(
             LOCAL_METRIC_PATHS["pairwise_cd"],
             process_id=accelerator.process_index,
             num_process=accelerator.num_processes,
-            experiment_id="pairwise_cd",
+            experiment_id="test_point_e_pc_cd",
         ),
     }
 
