@@ -9,6 +9,7 @@ from easydict import EasyDict as edict
 from openpoints.models.backbone.pointnext import PointNextEncoder
 from torch import nn
 from transformers import (
+    BatchEncoding,
     BertConfig,
     BertModel,
     BertTokenizer,
@@ -95,7 +96,7 @@ class MLP(nn.Module):
 
 
 class ReferIt3DNet_transformer(nn.Module):
-    def __init__(self, args, n_obj_classes, class_name_tokens, ignore_index):
+    def __init__(self, args, n_obj_classes, class_name_tokens: BatchEncoding, ignore_index: int):
         super().__init__()
 
         self.bert_pretrain_path = args.bert_pretrain_path
@@ -116,7 +117,10 @@ class ReferIt3DNet_transformer(nn.Module):
         self.lang_cls_alpha = args.lang_cls_alpha
         self.obj_cls_alpha = args.obj_cls_alpha
 
-        # ADD Point BERT
+        self.class_name_tokens = class_name_tokens
+
+        self.height_append: bool = args.height_append
+
         self.obj_encoder = PointNextEncoder(
             in_channels=7,
             width=32,
@@ -133,8 +137,9 @@ class ReferIt3DNet_transformer(nn.Module):
             act_args=edict({"act": "relu", "inplace": True}),
             norm_args=edict({"norm": "bn"}),
         )
-        self.obj_encoder_agg_proj = nn.Linear(4 * 512, self.inner_dim)
-        self.point_trans = False
+        self.obj_encoder_agg_proj = nn.Linear(
+            4 * 512 if self.height_append else 3 * 512, self.inner_dim
+        )
 
         self.language_encoder = BertModel.from_pretrained(self.bert_pretrain_path)
         self.language_encoder.encoder.layer = BertModel(BertConfig()).encoder.layer[
@@ -147,6 +152,7 @@ class ReferIt3DNet_transformer(nn.Module):
                 nhead=self.decoder_nhead_num,
                 dim_feedforward=2048,
                 activation="gelu",
+                batch_first=True,
             ),
             num_layers=self.decoder_layer_num,
         )
@@ -173,17 +179,10 @@ class ReferIt3DNet_transformer(nn.Module):
                 dropout_rate=self.dropout_rate,
             )
 
-        self.obj_feature_mapping = nn.Sequential(
-            nn.Linear(self.inner_dim, self.inner_dim),
-            nn.LayerNorm(self.inner_dim),
-        )
-
         self.box_feature_mapping = nn.Sequential(
             nn.Linear(4, self.inner_dim),
             nn.LayerNorm(self.inner_dim),
         )
-
-        self.class_name_tokens = class_name_tokens
 
         self.box_layers = MLP(
             self.inner_dim,
@@ -207,12 +206,13 @@ class ReferIt3DNet_transformer(nn.Module):
         xyz = input_points[:, :, :, :3]
         bxyz = box_infos[:, :, :3]  # B,N,3
         B, N, P = xyz.shape[:3]
+        V = self.view_number
         rotate_theta_arr = torch.tensor(
             [i * 2.0 * np.pi / self.rotate_number for i in range(self.rotate_number)],
             device=device,
         )
         view_theta_arr = torch.tensor(
-            [i * 2.0 * np.pi / self.view_number for i in range(self.view_number)],
+            [i * 2.0 * np.pi / V for i in range(V)],
             device=device,
         )
 
@@ -278,15 +278,24 @@ class ReferIt3DNet_transformer(nn.Module):
 
         return total_loss
 
-    def first_stage_forward(self, batch: dict) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        ## rotation augmentation and multi_view generation
+    def forward(self, batch: dict) -> Tuple[torch.Tensor, ...]:
+        ###################################
+        #                                 #
+        #    points/views augmentation    #
+        #                                 #
+        ###################################
         obj_points, boxs = self.aug_input(
             batch["ctx_pc"],
             torch.concat((batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1),
         )
         B, N, P, D = obj_points.shape
+        V = self.view_number
 
-        ## obj_encoding
+        ######################
+        #                    #
+        #    obj encoding    #
+        #                    #
+        ######################
         objects_features = self.obj_encoder.forward_cls_feat(
             {
                 "pos": obj_points[:, :, :, :3].reshape(B * N, P, -1).contiguous(),
@@ -297,10 +306,9 @@ class ReferIt3DNet_transformer(nn.Module):
             B, N, -1
         )  # (B, N, C)
 
-        ## obj_encoding
         obj_feats = objects_features
         box_infos = self.box_feature_mapping(boxs)
-        obj_infos = obj_feats[:, None].repeat(1, self.view_number, 1, 1) + box_infos
+        obj_infos = obj_feats[:, None].repeat(1, V, 1, 1) + box_infos
 
         # <LOSS>: obj_cls
         if self.label_lang_sup:
@@ -311,49 +319,68 @@ class ReferIt3DNet_transformer(nn.Module):
         else:
             CLASS_LOGITS = self.obj_clf(obj_feats.reshape(B * N, -1)).reshape(B, N, -1)
 
-        ## language_encoding
+        ###########################
+        #                         #
+        #    language encoding    #
+        #                         #
+        ###########################
         lang_tokens = batch["tokens"]
-        lang_infos = self.language_encoder(**lang_tokens)[0]
+        lang_infos: torch.Tensor = self.language_encoder(**lang_tokens)[0]  # (B, # of tokens, C)
 
         # <LOSS>: lang_cls
-        lang_features = lang_infos[:, 0]
-        LANG_LOGITS = self.language_clf(lang_features)
+        LANG_LOGITS = self.language_clf(lang_infos[:, 0])
 
-        ## multi-modal_fusion
-        cat_infos = obj_infos.reshape(B * self.view_number, -1, self.inner_dim)
+        ############################
+        #                          #
+        #    multi-modal fusion    #
+        #                          #
+        ############################
+        # mask generation
+        lang_mask: torch.BoolTensor = batch["tokens"]["attention_mask"] == 0  # (B, # of tokens)
+        lang_mask = lang_mask[:, None].repeat(1, V, 1).reshape(B * V, -1)  # (B * V, # of tokens)
+        obj_mask: torch.BoolTensor = batch["ctx_key_padding_mask"]  # (B, N)
+        # append first token mask
+        obj_mask = torch.cat(
+            [torch.zeros((B, 1), dtype=torch.bool, device=obj_mask.device), obj_mask], dim=1
+        )  # (B, N+1)
+        obj_mask = obj_mask[:, None].repeat(1, V, 1).reshape(B * V, -1)  # (B * V, N+1)
+
+        # feature prepare
+        cat_infos = obj_infos.reshape(B * V, -1, self.inner_dim)
         cat_infos = torch.cat(
-            [self.locate_token.repeat(B * self.view_number, 1, 1), cat_infos], dim=1
-        )
+            [self.locate_token.repeat(B * V, 1, 1), cat_infos], dim=1
+        )  # (B * V, N+1, C)
+        ...
         mem_infos = (
-            lang_infos[:, None]
-            .repeat(1, self.view_number, 1, 1)
-            .reshape(B * self.view_number, -1, self.inner_dim)
-        )
-        out_feats = (
-            self.refer_encoder(cat_infos.transpose(0, 1), mem_infos.transpose(0, 1))
-            .transpose(0, 1)
-            .reshape(B, self.view_number, -1, self.inner_dim)
-        )
+            lang_infos[:, None].repeat(1, V, 1, 1).reshape(B * V, -1, self.inner_dim)
+        )  # (B * V, # of tokens, C)
+        out_feats = self.refer_encoder(
+            tgt=cat_infos,
+            memory=mem_infos,
+            tgt_key_padding_mask=obj_mask,
+            memory_key_padding_mask=lang_mask,
+        ).reshape(
+            B, V, -1, self.inner_dim
+        )  # (B, V, N+1, C)
 
-        # Returns: (B, V, N+1, C), (B, N, # of classes), (B, C)
-        return out_feats, CLASS_LOGITS, LANG_LOGITS
+        ctx_embeds = out_feats[:, :, 0, :]  # (B, V, C)
 
-    def second_stage_forward(
-        self, out_feats, batch, CLASS_LOGITS, LANG_LOGITS
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        B, V, N = out_feats.shape[:3]
-        ## view_aggregation
-        refer_feat = out_feats
         if self.aggregate_type == "avg":
-            agg_feats = refer_feat.mean(dim=1)
+            ctx_embeds = ctx_embeds.mean(dim=1)
         elif self.aggregate_type == "avgmax":
-            agg_feats = refer_feat.mean(dim=1) + refer_feat.max(dim=1)
+            ctx_embeds = ctx_embeds.mean(dim=1) + ctx_embeds.max(dim=1)
         else:
-            agg_feats = refer_feat.max(dim=1).values
+            ctx_embeds = ctx_embeds.max(dim=1)
 
+        ######################
+        #                    #
+        #    loss compute    #
+        #                    #
+        ######################
         # return the center point of box and box max distance
-        agg_feats = agg_feats[:, 0, :]
-        LOCATE_PREDS = self.box_layers(agg_feats)
+        # ctx_embeds: (B, C)
+        LOCATE_PREDS = self.box_layers(ctx_embeds)
         LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
 
-        return LOSS, LOCATE_PREDS
+        # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
+        return ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS

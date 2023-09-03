@@ -120,8 +120,8 @@ class ReferIt3DDataset(Dataset):
 
         # context
         # NOTE: take care of padding, so that a batch has same # of objects across scans.
-        res["ctx_mask"] = np.array(
-            [True] * len(context) + [False] * (self.max_context_objects - len(context)), dtype=bool
+        res["ctx_key_padding_mask"] = np.array(
+            [False] * len(context) + [True] * (self.max_context_objects - len(context)), dtype=bool
         )
         res["ctx_class"] = instance_labels_of_context(
             context,
@@ -165,7 +165,7 @@ class ReferIt3DDataset(Dataset):
             "text": List[str],
             "tokens": BatchEncoding,    # see `custom_collate_fn` below for details
             ---
-            "ctx_mask": BoolTensor, (B, # of context),
+            "ctx_key_padding_mask": BoolTensor, (B, # of context),
             "ctx_class": LongTensor, (B, # of context),
             "ctx_pc": FloatTensor, (B, # of context, P, 6 or 7),
             "ctx_box_center": FloatTensor, (B, # of context, 3),

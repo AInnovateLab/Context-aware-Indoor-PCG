@@ -131,11 +131,18 @@ def main():
 
     # model params
     param_list = [
-        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
-        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
         {"params": mvt3dvg.obj_encoder.parameters(), "lr": args.init_lr},
-        {"params": mvt3dvg.obj_feature_mapping.parameters(), "lr": args.init_lr},
+        {"params": mvt3dvg.obj_encoder_agg_proj.parameters(), "lr": args.init_lr},
+        #
+        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
+        #
+        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
+        #
         {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
+        {"params": mvt3dvg.box_layers.parameters(), "lr": args.init_lr},
+        #
+        {"params": mvt3dvg.locate_token, "lr": args.init_lr},
+        #
         {"params": mvt3dvg.language_clf.parameters(), "lr": args.init_lr},
         {"params": mvt3dvg.object_language_clf.parameters(), "lr": args.init_lr},
     ]

@@ -61,24 +61,18 @@ def single_epoch_train(
         move_batch_to_device_(batch, device)
 
         # Forward pass
-        out_feats, CLASS_LOGITS, LANG_LOGITS = MVT3DVG.first_stage_forward(batch)
+        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS = MVT3DVG(batch)
 
         # NOTE - This is the point_e part
         # train diffusion
         reals = batch["tgt_pc"][:, :, :6]  # (B, P, 6 or 7)
         cond = batch["text"]  # List of str
 
-        # TODO - Here we need to reshape the tensor from MVT3DVG
-        mvt_feats = out_feats
-
         # TODO - Here we add the tensor from MVT3DVG to point_e
-        losses = sampler.loss_texts(mvt_feats, reals, cond, reals.shape[0])
+        losses = sampler.loss_texts(ctx_embeds, reals, cond, reals.shape[0])
 
         # TODO - Redesign the loss function, should we put them together?
         # continue training MVT3DVG
-        LOSS, LOCATE_PREDS = MVT3DVG.second_stage_forward(
-            out_feats, batch, CLASS_LOGITS, LANG_LOGITS
-        )
         LOSS: torch.Tensor = LOSS.mean() + losses.mean()
 
         # Backward

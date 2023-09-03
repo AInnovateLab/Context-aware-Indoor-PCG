@@ -269,7 +269,7 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         embeddings: Optional[Iterable[Optional[torch.Tensor]]] = None,
     ):
         """
-        :param input_feats: an [N, 4, # of point cloud objects + 1, input_dim=768]
+        :param input_feats: an [N, input_dim=768], the context embedding of surroundings
         :param x: an [N x C=6 x T=1024] tensor.
         :param t: an [N] tensor.
         :param images: a batch of images to condition on.
@@ -279,9 +279,7 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         """
         assert x.shape[-1] == self.n_ctx
         t_embed = self.time_embed(timestep_embedding(t, self.backbone.width))
-        # TODO - Add position vector into clip_out to supervise
-        input_feats = input_feats[:, :, 0, :]
-        input_feats = input_feats.mean(dim=1)  # N, 768
+        # NOTE - Add position vector into clip_out to supervise
         input_feats = self.input_feat_proj(input_feats)
 
         clip_out = self.clip(batch_size=len(x), images=images, texts=texts, embeddings=embeddings)
