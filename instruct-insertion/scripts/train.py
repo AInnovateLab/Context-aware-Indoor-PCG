@@ -251,6 +251,28 @@ def main():
     last_test_acc = -1
     last_test_epoch = -1
 
+    # metrics for evaluation
+    test_metrics = {
+        "test_rf3d_loc_estimate": evaluate.load(
+            LOCAL_METRIC_PATHS["loc_estimate"],
+            process_id=accelerator.process_index,
+            num_process=accelerator.num_processes,
+            experiment_id="test_rf3d_loc_estimate",
+        ),
+        "test_rf3d_cls_acc": evaluate.load(
+            LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+            process_id=accelerator.process_index,
+            num_process=accelerator.num_processes,
+            experiment_id="test_rf3d_cls_acc",
+        ),
+        "test_rf3d_txt_acc": evaluate.load(
+            LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+            process_id=accelerator.process_index,
+            num_process=accelerator.num_processes,
+            experiment_id="test_rf3d_txt_acc",
+        ),
+    }
+
     ##################
     #                #
     #    Training    #
@@ -258,28 +280,29 @@ def main():
     ##################
     if args.mode == "train":
         logger.info("Starting the training. Good luck!", main_process_only=True)
-        with accelerator.main_process_first():
+        with accelerator.local_main_process_first():
             # load metrics
             metrics = {
-                "rf3d_loc_estimate": evaluate.load(
+                "train_rf3d_loc_estimate": evaluate.load(
                     LOCAL_METRIC_PATHS["loc_estimate"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
-                    experiment_id="rf3d_loc_estimate",
+                    experiment_id="train_rf3d_loc_estimate",
                 ),
-                "rf3d_cls_acc": evaluate.load(
+                "train_rf3d_cls_acc": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
-                    experiment_id="rf3d_cls_acc",
+                    experiment_id="train_rf3d_cls_acc",
                 ),
-                "rf3d_txt_acc": evaluate.load(
+                "train_rf3d_txt_acc": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
-                    experiment_id="rf3d_txt_acc",
+                    experiment_id="train_rf3d_txt_acc",
                 ),
             }
+            metrics.update(test_metrics)
 
         with tqdm(
             range(start_training_epoch, args.max_train_epochs),
@@ -370,6 +393,7 @@ def main():
     #                #
     ##################
     elif args.mode == "test":
+        metrics = test_metrics
         evaluate_meters = evaluate_on_dataset(
             accelerator=accelerator,
             MVT3DVG=mvt3dvg,
