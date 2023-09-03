@@ -122,7 +122,7 @@ class PointCloudSampler:
         return output["loss"].mean()
 
     def sample_batch_progressive(
-        self, batch_size: int, model_kwargs: Dict[str, Any]
+        self, batch_size: int, ctx_embeds: torch.Tensor, model_kwargs: Dict[str, Any]
     ) -> Iterator[torch.Tensor]:
         samples = None
         for (
@@ -176,6 +176,7 @@ class PointCloudSampler:
                     sigma_max=stage_sigma_max,
                     s_churn=stage_s_churn,
                     guidance_scale=stage_guidance_scale,
+                    ctx_embeds=ctx_embeds,
                 )
             else:
                 internal_batch_size = batch_size

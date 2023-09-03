@@ -37,7 +37,7 @@ from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import ProjectConfiguration, set_seed
 from metrics import LOCAL_METRIC_PATHS
 from torch import optim
-from train_utils import single_epoch_train
+from train_utils import evaluate_on_dataset, single_epoch_train
 
 ##################################
 #                                #
@@ -370,16 +370,19 @@ def main():
     #                #
     ##################
     elif args.mode == "test":
-        # TODO: change evaluation metrics
-        raise NotImplementedError
-        meters = evaluate_on_dataset(
-            mvt3dvg, data_loaders["test"], criteria, device, pad_idx, args=args, tokenizer=tokenizer
+        evaluate_meters = evaluate_on_dataset(
+            accelerator=accelerator,
+            MVT3DVG=mvt3dvg,
+            point_e=point_e,
+            sampler=sampler,
+            data_loader=data_loaders["test"],
+            optimizer=optimizer,
+            device=device,
+            pad_idx=pad_idx,
+            args=args,
+            metrics=metrics,
+            epoch=epoch,
         )
-        print("Reference-Accuracy: {:.4f}".format(meters["test_referential_acc"]))
-        print("Object-Clf-Accuracy: {:.4f}".format(meters["test_object_cls_acc"]))
-        print("Text-Clf-Accuracy {:.4f}:".format(meters["test_txt_cls_acc"]))
-
-        out_file = osp.join(args.checkpoint_dir, "test_result.txt")
 
 
 if __name__ == "__main__":

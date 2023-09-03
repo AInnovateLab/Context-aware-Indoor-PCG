@@ -126,3 +126,40 @@ def single_epoch_train(
     }
 
     return ret
+
+
+def evaluate_on_dataset(
+    accelerator: accelerate.Accelerator,
+    MVT3DVG: ReferIt3DNet_transformer,
+    point_e: nn.Module,
+    sampler: PointCloudSampler,
+    data_loader,
+    optimizer,
+    device: torch.device,
+    pad_idx: int,
+    args,
+    metrics: Dict[str, evaluate.EvaluationModule],
+    epoch=None,
+):
+    MVT3DVG.eval()
+    point_e.eval()
+
+    with torch.no_grad():
+        for batch in tqdm.tqdm(data_loader, disable=not accelerator.is_main_process):
+            move_batch_to_device_(batch, device)
+            ctx_embeds, _, _, _, _ = MVT3DVG(batch)
+            prompts = batch["text"]
+            samples = sampler.sample_batch_progressive(
+                batch_size=len(batch["text"]),
+                ctx_embeds=ctx_embeds,
+                model_kwargs=dict(texts=[prompts]),
+            )
+            pc = sampler.output_to_point_clouds(samples)[0]
+            # prompt = prompt.replace(" ", "_")
+            # file_out = f"{folder_vis}/{prompt}_seed-{seed}_64steps.ply"
+            # file_out = f"test.ply"
+            # with open(file_out, "wb") as writer:
+            #     pc.write_ply(writer)
+
+            # metrics here
+            return samples

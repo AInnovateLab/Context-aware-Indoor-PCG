@@ -95,7 +95,7 @@ class GaussianToKarrasDenoiser:
         else:
             return float(self.alpha_cumprod_to_t(alpha_cumprod))
 
-    def denoise(self, x_t, sigmas, clip_denoised=True, model_kwargs=None):
+    def denoise(self, ctx_embeds, x_t, sigmas, clip_denoised=True, model_kwargs=None):
         t = th.tensor(
             [self.sigma_to_t(sigma) for sigma in sigmas.cpu().numpy()],
             dtype=th.long,
@@ -104,7 +104,12 @@ class GaussianToKarrasDenoiser:
         c_in = append_dims(1.0 / (sigmas**2 + 1) ** 0.5, x_t.ndim)
 
         out = self.diffusion.p_mean_variance(
-            self.model, x_t * c_in, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+            self.model,
+            ctx_embeds,
+            x_t * c_in,
+            t,
+            clip_denoised=clip_denoised,
+            model_kwargs=model_kwargs,
         )
         return None, out["pred_xstart"]
 
@@ -148,6 +153,7 @@ def karras_sample_progressive(
     s_tmax=float("inf"),
     s_noise=1.0,
     guidance_scale=0.0,
+    ctx_embeds=None,
 ):
     sigmas = get_sigmas_karras(steps, sigma_min, sigma_max, rho, device=device)
     x_T = th.randn(*shape, device=device) * sigma_max
@@ -163,7 +169,7 @@ def karras_sample_progressive(
     if isinstance(diffusion, KarrasDenoiser):
 
         def denoiser(x_t, sigma):
-            _, denoised = diffusion.denoise(model, x_t, sigma, **model_kwargs)
+            _, denoised = diffusion.denoise(model, ctx_embeds, x_t, sigma, **model_kwargs)
             if clip_denoised:
                 denoised = denoised.clamp(-1, 1)
             return denoised
@@ -173,7 +179,7 @@ def karras_sample_progressive(
 
         def denoiser(x_t, sigma):
             _, denoised = model.denoise(
-                x_t, sigma, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+                ctx_embeds, x_t, sigma, clip_denoised=clip_denoised, model_kwargs=model_kwargs
             )
             return denoised
 
