@@ -271,11 +271,11 @@ def main():
             num_process=accelerator.num_processes,
             experiment_id="test_rf3d_txt_acc",
         ),
-        "test_point_e_pc_jsd": evaluate.load(
-            LOCAL_METRIC_PATHS["point_e_pc_jsd"],
+        "test_pairwise_cd": evaluate.load(
+            LOCAL_METRIC_PATHS["pairwise_cd"],
             process_id=accelerator.process_index,
             num_process=accelerator.num_processes,
-            experiment_id="test_point_e_pc_jsd",
+            experiment_id="pairwise_cd",
         ),
     }
 

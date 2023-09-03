@@ -1,5 +1,4 @@
 import evaluate
-import numpy as np
 import torch
 from evaluate.info import EvaluationModuleInfo
 
@@ -27,7 +26,6 @@ class ChamferDistance(evaluate.Metric):
 
         # TO Do: batch
         batch = predictions.shape[0]
-        min_dist = float("inf")
         predictions = predictions
 
         num_points_p, num_feat_p = predictions.shape
