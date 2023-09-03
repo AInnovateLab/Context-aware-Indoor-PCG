@@ -4,6 +4,7 @@
 import os.path as osp
 import sys
 import time
+from datetime import datetime
 
 from torch import optim
 from tqdm import tqdm
@@ -33,7 +34,7 @@ from data.referit3d.in_out.neural_net_oriented import (
 # isort: split
 import evaluate
 from accelerate import Accelerator
-from accelerate.utils import ProjectConfiguration
+from accelerate.utils import ProjectConfiguration, set_seed
 from metrics import LOCAL_METRIC_PATHS
 from torch import optim
 from train_utils import single_epoch_train
@@ -70,7 +71,7 @@ from models.point_e_model.util.point_cloud import PointCloud
 #                     #
 #######################
 # isort: split
-from utils import seed_everything
+import torchinfo
 from utils.arguments import parse_arguments
 from utils.logger import get_logger, init_logger
 
@@ -79,16 +80,31 @@ def main():
     # Parse arguments
     args = parse_arguments()
 
-    # TODO: add log file
     acc_config = ProjectConfiguration(
         project_dir=osp.join(args.project_top_dir, args.project_name),
-        logging_dir=osp.join(args.project_top_dir, "logs"),
+        logging_dir=osp.join(args.project_top_dir, "tf_logs"),
     )
     accelerator = Accelerator(log_with="tensorboard", project_config=acc_config)
-    init_logger()
+    # tracker setup
+    accelerator.init_trackers(args.project_name, config=vars(args))
+    # save log file only to main process
+    project_start_time = datetime.now()
+    init_logger(
+        accelerator,
+        log_file=osp.join(
+            args.project_top_dir,
+            args.project_name,
+            "logs",
+            project_start_time.strftime("%Y-%m-%d_%H-%M-%S.log"),
+        ),
+    )
     logger = get_logger(__name__)
+    logger.info(
+        f"Project {args.project_name} start at {project_start_time.strftime('%Y-%m-%d_%H-%M-%S')}",
+        main_process_only=True,
+    )
     device = accelerator.device
-    seed_everything(args.random_seed)
+    set_seed(args.random_seed)
     tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
 
     #######################
@@ -122,12 +138,19 @@ def main():
     class_name_tokens: BatchEncoding = tokenizer(class_name_list, return_tensors="pt", padding=True)
     class_name_tokens = class_name_tokens.to(device)
 
+    ###################
+    #                 #
+    #    mvt model    #
+    #                 #
+    ###################
     if args.mvt_model == "referIt3DNet_transformer":
         mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
     else:
         assert False
     mvt3dvg = mvt3dvg.to(device)
-    print(mvt3dvg)
+    logger.info(
+        f"Model {args.mvt_model} architecture: {torchinfo.summary(mvt3dvg)}", main_process_only=True
+    )
 
     # model params
     param_list = [
@@ -141,7 +164,7 @@ def main():
         {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
         {"params": mvt3dvg.box_layers.parameters(), "lr": args.init_lr},
         #
-        {"params": mvt3dvg.locate_token, "lr": args.init_lr},
+        {"params": mvt3dvg.locate_token.parameters(), "lr": args.init_lr},
         #
         {"params": mvt3dvg.language_clf.parameters(), "lr": args.init_lr},
         {"params": mvt3dvg.object_language_clf.parameters(), "lr": args.init_lr},
@@ -149,24 +172,26 @@ def main():
     if not args.label_lang_sup:
         param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
 
-    # # construct model
-    # if accelerator.is_local_main_process:
-    #     from models.point_e_model.models.download import MODEL_PATHS
-    #     # check model cache
-    #     if not osp.exists(osp.join(args.project_top_dir, "cache", "point_e_model", )):
-    #     logger.info(f"Downloading Point-E model: {args.point_e_model}.")
-    #     logger
+    #######################
+    #                     #
+    #    point-e model    #
+    #                     #
+    #######################
     point_e_config = MODEL_CONFIGS[args.point_e_model]
     point_e_config["cache_dir"] = osp.join(args.project_top_dir, "cache", "point_e_model")
     with accelerator.local_main_process_first():
         point_e = model_from_config(point_e_config, device)
     point_e.to(device)
+    logger.info(
+        f"Model {args.point_e_model} architecture: {torchinfo.summary(point_e)}",
+        main_process_only=True,
+    )
 
     # construct diffusion
     point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[args.point_e_model])
 
     param_list.append({"params": point_e.parameters(), "lr": args.init_lr})
-    optimizer = optim.AdamW(param_list, lr=args.init_lr)  # init_lr = 1e-4
+    optimizer = optim.AdamW(param_list)
 
     lr_scheduler = get_linear_scheduler(
         optimizer,
@@ -218,7 +243,11 @@ def main():
     last_test_acc = -1
     last_test_epoch = -1
 
-    # Training.
+    ##################
+    #                #
+    #    Training    #
+    #                #
+    ##################
     if args.mode == "train":
         logger.info("Starting the training. Good luck!", main_process_only=True)
         with accelerator.main_process_first():
@@ -324,6 +353,11 @@ def main():
         accelerator.end_training()
         logger.info("Finished training successfully.", main_process_only=True)
 
+    ##################
+    #                #
+    #    evaluate    #
+    #                #
+    ##################
     elif args.mode == "test":
         # TODO: change evaluation metrics
         raise NotImplementedError

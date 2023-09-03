@@ -142,9 +142,13 @@ class ReferIt3DNet_transformer(nn.Module):
         )
 
         self.language_encoder = BertModel.from_pretrained(self.bert_pretrain_path)
-        self.language_encoder.encoder.layer = BertModel(BertConfig()).encoder.layer[
+        # leave only part of the encoder layers
+        self.language_encoder.encoder.layer = self.language_encoder.encoder.layer[
             : self.encoder_layer_num
         ]
+        # freeze the embedding layer and first layer
+        self.language_encoder.embeddings.requires_grad_(False)
+        self.language_encoder.encoder.layer[0].requires_grad_(False)
 
         self.refer_encoder = nn.TransformerDecoder(
             torch.nn.TransformerDecoderLayer(
@@ -190,7 +194,7 @@ class ReferIt3DNet_transformer(nn.Module):
             dropout_rate=self.dropout_rate,
         )
 
-        self.locate_token = nn.Parameter(torch.randn(1, 1, self.inner_dim))
+        self.locate_token = nn.Embedding(1, self.inner_dim)
 
         self.locate_loss = nn.L1Loss()
         self.dist_loss = nn.L1Loss()
@@ -348,7 +352,7 @@ class ReferIt3DNet_transformer(nn.Module):
         # feature prepare
         cat_infos = obj_infos.reshape(B * V, -1, self.inner_dim)
         cat_infos = torch.cat(
-            [self.locate_token.repeat(B * V, 1, 1), cat_infos], dim=1
+            [self.locate_token.weight[None].repeat(B * V, 1, 1), cat_infos], dim=1
         )  # (B * V, N+1, C)
         ...
         mem_infos = (

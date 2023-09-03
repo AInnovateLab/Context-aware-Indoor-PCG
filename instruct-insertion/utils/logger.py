@@ -4,13 +4,17 @@ import sys
 from typing import TYPE_CHECKING
 
 # NOTE: re-import
+from accelerate import Accelerator
 from accelerate.logging import get_logger  # noqa
+
+from .misc import create_dir
 
 if TYPE_CHECKING:
     from . import PathLike
 
 
 def init_logger(
+    accelerator: Accelerator,
     level: int = logging.INFO,
     log_file: "PathLike" = None,
     log_dir: "PathLike" = None,
@@ -18,12 +22,19 @@ def init_logger(
     handlers = list()
     handlers.append(logging.StreamHandler(sys.stdout))
     fmt_str = "[%(levelname)s, %(name)s] %(asctime)s - %(message)s"
+    datefmt_str = "%Y-%m-%d %H:%M:%S"
 
     # Add logging to file handler
-    if log_file is not None or log_dir is not None:
-        filepath = log_file if log_file is not None else osp.join(log_dir, "log.txt")
-        file_handler = logging.FileHandler(filepath)
-        file_handler.setFormatter(logging.Formatter(fmt_str))
-        handlers.append(file_handler)
+    if accelerator.is_main_process:
+        if log_file is not None or log_dir is not None:
+            if log_file is not None:
+                create_dir(osp.dirname(log_file))
+                filepath = log_file
+            elif log_dir is not None:
+                create_dir(log_dir)
+                filepath = osp.join(log_dir, "log.txt")
+            file_handler = logging.FileHandler(filepath)
+            file_handler.setFormatter(logging.Formatter(fmt_str, datefmt=datefmt_str))
+            handlers.append(file_handler)
 
-    logging.basicConfig(level=level, format=fmt_str, handlers=handlers, datefmt="%Y-%m-%d %H:%M:%S")
+    logging.basicConfig(level=level, format=fmt_str, handlers=handlers, datefmt=datefmt_str)

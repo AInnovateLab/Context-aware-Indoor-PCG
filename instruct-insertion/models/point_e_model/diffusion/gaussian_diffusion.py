@@ -256,7 +256,7 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, out_feats, x, t, clip_denoised=False, denoised_fn=None, model_kwargs=None
+        self, model, ctx_embeds, x, t, clip_denoised=False, denoised_fn=None, model_kwargs=None
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -284,7 +284,7 @@ class GaussianDiffusion:
 
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = model(out_feats, x, t, **model_kwargs)
+        model_output = model(ctx_embeds, x, t, **model_kwargs)
         if isinstance(model_output, tuple):
             model_output, extra = model_output
         else:
@@ -725,7 +725,7 @@ class GaussianDiffusion:
                 img = out["sample"]
 
     def _vb_terms_bpd(
-        self, model, out_feats, x_start, x_t, t, clip_denoised=False, model_kwargs=None
+        self, model, ctx_embeds, x_start, x_t, t, clip_denoised=False, model_kwargs=None
     ):
         """
         Get a term for the variational lower-bound.
@@ -741,7 +741,7 @@ class GaussianDiffusion:
             x_start=x_start, x_t=x_t, t=t
         )
         out = self.p_mean_variance(
-            model, out_feats, x_t, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+            model, ctx_embeds, x_t, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
         kl = normal_kl(true_mean, true_log_variance_clipped, out["mean"], out["log_variance"])
         kl = mean_flat(kl) / np.log(2.0)
@@ -764,12 +764,13 @@ class GaussianDiffusion:
         }
 
     def training_losses(
-        self, model, out_feats, x_start, t, model_kwargs=None, noise=None
+        self, model, ctx_embeds, x_start, t, model_kwargs=None, noise=None
     ) -> Dict[str, th.Tensor]:
         """
         Compute training losses for a single timestep.
 
         :param model: the model to evaluate loss on.
+        :param ctx_embeds: the [N x C] embeddings of surrounding context.
         :param x_start: the [N x C x ...] tensor of inputs.
         :param t: a batch of timestep indices.
         :param model_kwargs: if not None, a dict of extra keyword arguments to
@@ -790,7 +791,7 @@ class GaussianDiffusion:
         if self.loss_type == "kl" or self.loss_type == "rescaled_kl":
             vb_terms = self._vb_terms_bpd(
                 model=model,
-                out_feats=out_feats,
+                ctx_embeds=ctx_embeds,
                 x_start=x_start,
                 x_t=x_t,
                 t=t,
@@ -802,8 +803,7 @@ class GaussianDiffusion:
                 terms["loss"] *= self.num_timesteps
             extra = vb_terms["extra"]
         elif self.loss_type == "mse" or self.loss_type == "rescaled_mse":
-            #             set_trace()
-            model_output = model(x_t, t, **model_kwargs)
+            model_output = model(ctx_embeds, x_t, t, **model_kwargs)
             if isinstance(model_output, tuple):
                 model_output, extra = model_output
             else:
@@ -821,6 +821,7 @@ class GaussianDiffusion:
                 frozen_out = th.cat([model_output.detach(), model_var_values], dim=1)
                 terms["vb"] = self._vb_terms_bpd(
                     model=lambda *args, r=frozen_out: r,
+                    ctx_embeds=ctx_embeds,
                     x_start=x_start,
                     x_t=x_t,
                     t=t,

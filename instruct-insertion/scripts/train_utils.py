@@ -40,17 +40,6 @@ def single_epoch_train(
     metrics: Dict[str, evaluate.EvaluationModule],
     epoch=None,
 ):
-    """
-    :param model:
-    :param data_loader:
-    :param criteria: (dict) holding all modules for computing the losses.
-    :param optimizer:
-    :param device:
-    :param pad_idx: (int)
-    :param args:
-    :return:
-    """
-
     total_loss_list = list()
 
     # Set the model in training mode

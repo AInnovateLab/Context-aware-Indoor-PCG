@@ -8,6 +8,12 @@ from data.utils import PathLike, create_dir, load_json, read_lines, str2bool
 #                        #
 ##########################
 def seed_everything(seed: int, deterministic: bool = True, warn_only: bool = True):
+    import warnings
+
+    warnings.warn(
+        "This function is deprecated. Use `accelerate.utils.set_seed` instead.", DeprecationWarning
+    )
+
     import os
     import random
 
