@@ -23,16 +23,17 @@ class LocEstimate(evaluate.Metric):
     def _compute(self, predictions, references):
         """
         Args:
-            predictions: 1d array-like predicted labels of shape (n_samples, 4)
-            references: 1d array-like reference labels of shape (n_samples, 4)
+            predictions: 2d array-like predicted labels of shape (n_samples, 4)
+            references: 2d array-like reference labels of shape (n_samples, 4)
         """
         predictions = np.array(predictions)
         references = np.array(references)
+        assert predictions.shape == references.shape
+        assert predictions.ndim == 2
         dist = np.linalg.norm(predictions[:, :3] - references[:, :3], ord=2, axis=1)
         dist = np.mean(dist)
         radius_diff = np.abs(predictions[:, 3] - references[:, 3])
         radius_diff = np.mean(radius_diff)
-        assert predictions.shape == references.shape
         return {
             "dist": float(dist),
             "radius_diff": float(radius_diff),

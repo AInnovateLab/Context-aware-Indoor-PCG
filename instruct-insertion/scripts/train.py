@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import json
 import os.path as osp
+import pprint
 import sys
 import time
 from datetime import datetime
@@ -74,6 +76,8 @@ import torchinfo
 from utils.arguments import parse_arguments
 from utils.logger import get_logger, init_logger
 
+DATE_FMT = "%Y-%m-%d_%H-%M-%S"
+
 
 def main():
     # Parse arguments
@@ -97,12 +101,12 @@ def main():
             args.project_top_dir,
             args.project_name,
             "logs",
-            project_start_time.strftime("%Y-%m-%d_%H-%M-%S.log"),
+            project_start_time.strftime(DATE_FMT),
         ),
     )
     logger = get_logger(__name__)
     logger.info(
-        f"Project {args.project_name} start at {project_start_time.strftime('%Y-%m-%d_%H-%M-%S')}",
+        f"Project {args.project_name} start at {project_start_time.strftime(DATE_FMT)}",
         main_process_only=True,
     )
     if accelerator.is_main_process and accelerator.num_processes > 1:
@@ -244,6 +248,10 @@ def main():
         # TODO - search in the same folder for the best model metrics so far
     else:
         start_training_epoch = 0
+        if args.mode == "test":
+            logger.warning(
+                "No resume path provided. Starting evaluation from scratch.", main_process_only=True
+            )
 
     best_test_acc = -1
     best_test_epoch = -1
@@ -251,32 +259,34 @@ def main():
     last_test_epoch = -1
 
     # metrics for evaluation
-    test_metrics = {
-        "test_rf3d_loc_estimate": evaluate.load(
-            LOCAL_METRIC_PATHS["loc_estimate"],
-            process_id=accelerator.process_index,
-            num_process=accelerator.num_processes,
-            experiment_id="test_rf3d_loc_estimate",
-        ),
-        "test_rf3d_cls_acc": evaluate.load(
-            LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
-            process_id=accelerator.process_index,
-            num_process=accelerator.num_processes,
-            experiment_id="test_rf3d_cls_acc",
-        ),
-        "test_rf3d_txt_acc": evaluate.load(
-            LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
-            process_id=accelerator.process_index,
-            num_process=accelerator.num_processes,
-            experiment_id="test_rf3d_txt_acc",
-        ),
-        "test_point_e_pc_cd": evaluate.load(
-            LOCAL_METRIC_PATHS["pairwise_cd"],
-            process_id=accelerator.process_index,
-            num_process=accelerator.num_processes,
-            experiment_id="test_point_e_pc_cd",
-        ),
-    }
+    with accelerator.local_main_process_first():
+        test_metrics = {
+            "test_rf3d_loc_estimate": evaluate.load(
+                LOCAL_METRIC_PATHS["loc_estimate"],
+                process_id=accelerator.process_index,
+                num_process=accelerator.num_processes,
+                experiment_id="test_rf3d_loc_estimate",
+            ),
+            "test_rf3d_cls_acc": evaluate.load(
+                LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+                process_id=accelerator.process_index,
+                num_process=accelerator.num_processes,
+                experiment_id="test_rf3d_cls_acc",
+            ),
+            "test_rf3d_txt_acc": evaluate.load(
+                LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+                process_id=accelerator.process_index,
+                num_process=accelerator.num_processes,
+                experiment_id="test_rf3d_txt_acc",
+            ),
+            "test_point_e_pc_cd": evaluate.load(
+                LOCAL_METRIC_PATHS["pairwise_cd"],
+                n_features=7 if args.height_append else 6,
+                process_id=accelerator.process_index,
+                num_process=accelerator.num_processes,
+                experiment_id="test_point_e_pc_cd",
+            ),
+        }
 
     ##################
     #                #
@@ -398,6 +408,7 @@ def main():
     #                #
     ##################
     elif args.mode == "test":
+        logger.info("Starting the evaluation. Good luck!", main_process_only=True)
         metrics = test_metrics
         evaluate_meters = evaluate_on_dataset(
             accelerator=accelerator,
@@ -405,13 +416,23 @@ def main():
             point_e=point_e,
             sampler=sampler,
             data_loader=data_loaders["test"],
-            optimizer=optimizer,
             device=device,
             pad_idx=pad_idx,
             args=args,
             metrics=metrics,
-            epoch=epoch,
         )
+
+        if accelerator.is_main_process:
+            logger.info(f"Test metrics: ", main_process_only=True)
+            logger.info(pprint.pformat(evaluate_meters), main_process_only=True)
+            out_path = osp.join(
+                args.project_top_dir,
+                args.project_name,
+                f"test_metrics_{project_start_time.strftime(DATE_FMT)}.json",
+            )
+            logger.info(f"Saving test metrics to {out_path}", main_process_only=True)
+            with open(out_path, "w") as f:
+                json.dump(evaluate_meters, f)
 
 
 if __name__ == "__main__":

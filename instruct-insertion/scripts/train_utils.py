@@ -172,6 +172,34 @@ def evaluate_on_dataset(
             (batch["tgt_box_center"], batch["tgt_box_max_dist"][:, None]), dim=-1
         )
 
+        #########################
+        #                       #
+        #    evalute point-e    #
+        #                       #
+        #########################
+        prompts = batch["text"]
+        # stack twice for guided scale
+        ctx_embeds = torch.cat((ctx_embeds, ctx_embeds), dim=0)
+        samples_it = sampler.sample_batch_progressive(
+            batch_size=len(prompts),
+            ctx_embeds=ctx_embeds,
+            model_kwargs=dict(texts=prompts),
+        )
+        # get the last timestep prediction
+        for last_pcs in samples_it:
+            pass
+        # last_pcs: (B, C, P), requires colors scales
+        pos = last_pcs[:, :3, :]
+        aux = last_pcs[:, 3:, :]
+        aux = aux.clamp_(0, 255).round_().div_(255.0)
+        diff_pcs = torch.cat((pos, aux), dim=1)  # (B, C, P)
+        diff_pcs = diff_pcs.transpose(1, 2)  # (B, P, C)
+
+        ########################
+        #                      #
+        #    metrics update    #
+        #                      #
+        ########################
         # gather for multi-gpu
         (
             LOSS,
@@ -179,8 +207,10 @@ def evaluate_on_dataset(
             CLASS_LOGITS,
             LANG_LOGITS,
             locate_tgt,
+            diff_pcs,
             batch["ctx_class"],
             batch["tgt_class"],
+            batch["tgt_pc"],
         ) = accelerator.gather_for_metrics(
             (
                 LOSS,
@@ -188,8 +218,10 @@ def evaluate_on_dataset(
                 CLASS_LOGITS,
                 LANG_LOGITS,
                 locate_tgt,
+                diff_pcs,
                 batch["ctx_class"],
                 batch["tgt_class"],
+                batch["tgt_pc"],
             )
         )
 
@@ -212,21 +244,10 @@ def evaluate_on_dataset(
                 references=batch["tgt_class"],
             )
 
-        prompts = batch["text"]
-        samples = sampler.sample_batch_progressive(
-            batch_size=len(batch["text"]),
-            ctx_embeds=ctx_embeds,
-            model_kwargs=dict(texts=[prompts]),
+        metrics["test_point_e_pc_cd"].add_batch(
+            predictions=diff_pcs,
+            references=batch["tgt_pc"][..., :6],
         )
-        pc = sampler.output_to_point_clouds(samples)[0]
-        # prompt = prompt.replace(" ", "_")
-        # file_out = f"{folder_vis}/{prompt}_seed-{seed}_64steps.ply"
-        # file_out = f"test.ply"
-        # with open(file_out, "wb") as writer:
-        #     pc.write_ply(writer)
-
-        # metrics here
-        ...
 
     #############################
     #                           #
@@ -234,6 +255,7 @@ def evaluate_on_dataset(
     #                           #
     #############################
     loc_estimate = metrics["test_rf3d_loc_estimate"].compute()
+    poine_e_pc_cd = metrics["test_point_e_pc_cd"].compute()
 
     ret = {
         "test_rf3d_loss": np.mean(rf3d_loss_list),
@@ -241,6 +263,8 @@ def evaluate_on_dataset(
         "test_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
         "test_rf3d_cls_acc": metrics["test_rf3d_cls_acc"].compute(ignore=pad_idx),
         "test_rf3d_txt_acc": metrics["test_rf3d_txt_acc"].compute(ignore=pad_idx),
+        "test_point_e_pc_cd_dist": poine_e_pc_cd["distance"],
+        "test_point_e_pc_cd_feat_diff": poine_e_pc_cd["feat_diff"],
     }
 
     return ret
