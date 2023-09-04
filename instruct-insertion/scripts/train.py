@@ -227,10 +227,17 @@ def main():
         point_e,
         data_loaders["train"],
         data_loaders["test"],
+        data_loaders["test_small"],
         optimizer,
         lr_scheduler,
     ) = accelerator.prepare(
-        mvt3dvg, point_e, data_loaders["train"], data_loaders["test"], optimizer, lr_scheduler
+        mvt3dvg,
+        point_e,
+        data_loaders["train"],
+        data_loaders["test"],
+        data_loaders["test_small"],
+        optimizer,
+        lr_scheduler,
     )
 
     aux_channels = ["R", "G", "B"]
@@ -385,14 +392,20 @@ def main():
                 if accelerator.is_main_process:
                     # save last states
                     accelerator.save_state(
-                        osp.join(args.project_top_dir, args.project_name, "checkpoints", "last")
+                        osp.join(
+                            args.project_top_dir,
+                            args.project_name,
+                            "checkpoints",
+                            project_start_time.strftime(DATE_FMT),
+                            "last",
+                        )
                     )
 
                     # save best states
                     if best_test_cd_dist > test_cd_dist:
                         logger.info(
                             colored(
-                                f"Training test CD distance: {best_test_cd_dist: .4f}, improved @epoch {epoch}",
+                                f"Training test CD distance: {test_cd_dist: .4f}, improved @epoch {epoch}",
                                 "green",
                             ),
                             main_process_only=True,
@@ -401,6 +414,7 @@ def main():
                             args.project_top_dir,
                             args.project_name,
                             "checkpoints",
+                            project_start_time.strftime(DATE_FMT),
                             f"best_cd_{best_test_cd_dist:.4f}_epoch_{best_test_epoch}",
                         )
                         # remove old best
@@ -414,13 +428,15 @@ def main():
                                 args.project_top_dir,
                                 args.project_name,
                                 "checkpoints",
+                                project_start_time.strftime(DATE_FMT),
                                 f"best_cd_{test_cd_dist:.4f}_epoch_{epoch}",
                             )
                         )
                     else:
                         logger.info(
                             colored(
-                                f"Training test CD distance: {best_test_cd_dist: .4f}, did not improve @epoch {epoch} since @epoch {best_test_epoch}",
+                                f"Training test CD distance: {test_cd_dist: .4f}, did not improve @epoch {epoch} "
+                                f"since @epoch {best_test_epoch}",
                                 "red",
                             ),
                             main_process_only=True,

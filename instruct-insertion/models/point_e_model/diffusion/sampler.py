@@ -2,8 +2,9 @@
 Helpers for sampling from a single- or multi-stage point cloud diffusion model.
 """
 
-from typing import Any, Callable, Dict, Iterator, List, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
+import accelerate
 import numpy as np
 import torch
 import torch.nn as nn
@@ -122,7 +123,11 @@ class PointCloudSampler:
         return output["loss"].mean()
 
     def sample_batch_progressive(
-        self, batch_size: int, ctx_embeds: torch.Tensor, model_kwargs: Dict[str, Any]
+        self,
+        batch_size: int,
+        ctx_embeds: torch.Tensor,
+        model_kwargs: Dict[str, Any],
+        accelerator: Optional[accelerate.Accelerator] = None,  # DDP used only
     ) -> Iterator[torch.Tensor]:
         samples = None
         for (
@@ -148,6 +153,10 @@ class PointCloudSampler:
             self.s_churn,
             self.model_kwargs_key_filter,
         ):
+            if accelerator is not None:
+                # exit DDP wrapper
+                model = accelerator.unwrap_model(model)
+
             stage_model_kwargs = model_kwargs.copy()
             if stage_key_filter != "*":
                 use_keys = set(stage_key_filter.split(","))

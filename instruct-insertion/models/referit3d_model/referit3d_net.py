@@ -196,9 +196,9 @@ class ReferIt3DNet_transformer(nn.Module):
 
         self.locate_token = nn.Embedding(1, self.inner_dim)
 
-        self.locate_loss = nn.L1Loss()
-        self.dist_loss = nn.L1Loss()
-        # self.dist_loss = nn.MSELoss()
+        self.locate_loss = nn.MSELoss()
+        self.radius_loss = nn.L1Loss()
+
         self.lang_logits_loss = nn.CrossEntropyLoss()
         self.class_logits_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
@@ -269,9 +269,9 @@ class ReferIt3DNet_transformer(nn.Module):
         # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
         locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
 
-        # dist loss
+        # radius loss
         # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_center'] (B,)
-        dist_loss = self.dist_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
+        dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
 
         total_loss = (
             locate_loss

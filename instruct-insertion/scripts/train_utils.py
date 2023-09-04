@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import Any, Dict
 
 import accelerate
@@ -105,8 +106,8 @@ def single_epoch_train(
             total_loss_list.append(float(LOSS.mean()))
 
             metrics["train_rf3d_loc_estimate"].add_batch(
-                predictions=LOCATE_PREDS,
-                references=locate_tgt,
+                predictions=LOCATE_PREDS.float(),
+                references=locate_tgt.float(),
             )
 
             if args.obj_cls_alpha > 0:
@@ -126,7 +127,17 @@ def single_epoch_train(
     #    metrics computation    #
     #                           #
     #############################
-    loc_estimate = metrics["train_rf3d_loc_estimate"].compute()
+    if accelerator.is_main_process:
+        loc_estimate = metrics["train_rf3d_loc_estimate"].compute()
+        rf3d_cls_acc = metrics["train_rf3d_cls_acc"].compute(ignore_label=pad_idx)
+        rf3d_txt_acc = metrics["train_rf3d_txt_acc"].compute(ignore_label=pad_idx)
+    else:
+        _ = metrics["train_rf3d_loc_estimate"].compute()
+        _ = metrics["train_rf3d_cls_acc"].compute(ignore_label=pad_idx)
+        _ = metrics["train_rf3d_txt_acc"].compute(ignore_label=pad_idx)
+        loc_estimate = defaultdict(float)
+        rf3d_cls_acc = defaultdict(float)
+        rf3d_txt_acc = defaultdict(float)
 
     ret = {
         "train_total_loss": np.mean(total_loss_list),
@@ -134,12 +145,8 @@ def single_epoch_train(
         "train_point_e_loss": np.mean(point_e_loss_list),
         "train_rf3d_loc_dist": loc_estimate["dist"],
         "train_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
-        "train_rf3d_cls_acc": metrics["train_rf3d_cls_acc"].compute(ignore_label=pad_idx)[
-            "accuracy"
-        ],
-        "train_rf3d_txt_acc": metrics["train_rf3d_txt_acc"].compute(ignore_label=pad_idx)[
-            "accuracy"
-        ],
+        "train_rf3d_cls_acc": rf3d_cls_acc["accuracy"],
+        "train_rf3d_txt_acc": rf3d_txt_acc["accuracy"],
     }
 
     return ret
@@ -189,6 +196,7 @@ def evaluate_on_dataset(
             batch_size=len(prompts),
             ctx_embeds=ctx_embeds,
             model_kwargs=dict(texts=prompts),
+            accelerator=accelerator,
         )
         # get the last timestep prediction
         for last_pcs in samples_it:
@@ -233,8 +241,8 @@ def evaluate_on_dataset(
         rf3d_loss_list.append(float(LOSS.mean()))
 
         metrics["test_rf3d_loc_estimate"].add_batch(
-            predictions=LOCATE_PREDS,
-            references=locate_tgt,
+            predictions=LOCATE_PREDS.float(),
+            references=locate_tgt.float(),
         )
 
         if args.obj_cls_alpha > 0:
@@ -250,8 +258,8 @@ def evaluate_on_dataset(
             )
 
         metrics["test_point_e_pc_cd"].add_batch(
-            predictions=diff_pcs[..., :6],
-            references=batch["tgt_pc"][..., :6],
+            predictions=diff_pcs[..., :6].float(),
+            references=batch["tgt_pc"][..., :6].float(),
         )
 
     #############################
@@ -259,15 +267,27 @@ def evaluate_on_dataset(
     #    metrics computation    #
     #                           #
     #############################
-    loc_estimate = metrics["test_rf3d_loc_estimate"].compute()
-    poine_e_pc_cd = metrics["test_point_e_pc_cd"].compute()
+    if accelerator.is_main_process:
+        loc_estimate = metrics["test_rf3d_loc_estimate"].compute()
+        poine_e_pc_cd = metrics["test_point_e_pc_cd"].compute()
+        rf3d_cls_acc = metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx)
+        rf3d_txt_acc = metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx)
+    else:
+        _ = metrics["test_rf3d_loc_estimate"].compute()
+        _ = metrics["test_point_e_pc_cd"].compute()
+        _ = metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx)
+        _ = metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx)
+        loc_estimate = defaultdict(float)
+        poine_e_pc_cd = defaultdict(float)
+        rf3d_cls_acc = defaultdict(float)
+        rf3d_txt_acc = defaultdict(float)
 
     ret = {
         "test_rf3d_loss": np.mean(rf3d_loss_list),
         "test_rf3d_loc_dist": loc_estimate["dist"],
         "test_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
-        "test_rf3d_cls_acc": metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx)["accuracy"],
-        "test_rf3d_txt_acc": metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx)["accuracy"],
+        "test_rf3d_cls_acc": rf3d_cls_acc["accuracy"],
+        "test_rf3d_txt_acc": rf3d_txt_acc["accuracy"],
         "test_point_e_pc_cd_dist": poine_e_pc_cd["distance"],
         "test_point_e_pc_cd_feat_diff": poine_e_pc_cd["feat_diff"],
     }
