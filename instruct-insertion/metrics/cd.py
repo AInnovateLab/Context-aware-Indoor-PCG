@@ -5,10 +5,15 @@ import torch
 from evaluate.info import EvaluationModuleInfo
 from more_itertools import batched
 
-from datasets import Features, Sequence, Value
+from datasets import Array2D, Features
 
 
 class ChamferDistance(evaluate.Metric):
+    def __init__(self, *args, n_features=None, **kwargs):
+        assert n_features is not None, "init_kwargs `feat_dim` must be specified when initializing."
+        self.n_features = n_features
+        super().__init__(*args, **kwargs)
+
     def _info(self) -> EvaluationModuleInfo:
         return evaluate.MetricInfo(
             description="Chamfer distance between pairwise point clouds, averaged over batch. "
@@ -17,8 +22,8 @@ class ChamferDistance(evaluate.Metric):
             inputs_description="",
             features=Features(
                 {
-                    "predictions": Sequence(Sequence(Value("float"))),
-                    "references": Sequence(Sequence(Value("float"))),
+                    "predictions": Array2D((None, self.n_features), "float32"),
+                    "references": Array2D((None, self.n_features), "float32"),
                 }
             ),
             reference_urls=None,
@@ -34,6 +39,8 @@ class ChamferDistance(evaluate.Metric):
             batch_size: batch size for computing chamfer distance
         """
         assert len(predictions) == len(references)
+        if len(predictions) == 0:
+            return {"distance": 0.0, "feat_diff": 0.0}
         distances: List[torch.Tensor] = list()
         feat_diffs: List[torch.Tensor] = list()
         for b_preds, b_refs in zip(
@@ -61,7 +68,6 @@ class ChamferDistance(evaluate.Metric):
             preds: (B, P1, C)
             refs: (B, P2, C)
         """
-        print(preds.shape)
         assert preds.shape[0] == refs.shape[0]
         assert preds.shape[2] == refs.shape[2]
         assert preds.shape[2] >= 3
