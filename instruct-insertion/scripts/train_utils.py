@@ -49,43 +49,33 @@ def single_epoch_train(
     point_e.train()
 
     for batch in tqdm.tqdm(data_loader, disable=not accelerator.is_main_process):
-        move_batch_to_device_(batch, device)
+        with accelerator.accumulate(MVT3DVG, point_e):
+            move_batch_to_device_(batch, device)
 
-        # Forward pass
-        ctx_embeds, RF3D_LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS = MVT3DVG(batch)
+            # Forward pass
+            ctx_embeds, RF3D_LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS = MVT3DVG(batch)
 
-        # NOTE - This is the point_e part
-        # train diffusion
-        reals = batch["tgt_pc"][:, :, :6]  # (B, P, 6 or 7)
-        cond = batch["text"]  # List of str
+            # NOTE - This is the point_e part
+            # train diffusion
+            reals = batch["tgt_pc"][:, :, :6]  # (B, P, 6 or 7)
+            cond = batch["text"]  # List of str
 
-        # Here we add the tensor from MVT3DVG to point_e
-        losses = sampler.loss_texts(ctx_embeds, reals, cond, reals.shape[0])
+            # Here we add the tensor from MVT3DVG to point_e
+            losses = sampler.loss_texts(ctx_embeds, reals, cond, reals.shape[0])
 
-        LOSS: torch.Tensor = RF3D_LOSS.mean() + losses.mean()
+            LOSS: torch.Tensor = RF3D_LOSS.mean() + losses.mean()
 
-        # Backward
-        optimizer.zero_grad()
-        accelerator.backward(LOSS)
-        optimizer.step()
+            # Backward
+            optimizer.zero_grad()
+            accelerator.backward(LOSS)
+            optimizer.step()
 
-        # Update the loss and accuracy meters
-        locate_tgt = torch.concat(
-            (batch["tgt_box_center"], batch["tgt_box_max_dist"][:, None]), dim=-1
-        )
+            # Update the loss and accuracy meters
+            locate_tgt = torch.concat(
+                (batch["tgt_box_center"], batch["tgt_box_max_dist"][:, None]), dim=-1
+            )
 
-        # TODO: change target, and be careful of the pad item, and gather more
-        (
-            LOSS,
-            LOCATE_PREDS,
-            CLASS_LOGITS,
-            LANG_LOGITS,
-            RF3D_LOSS,
-            losses,
-            locate_tgt,
-            batch["ctx_class"],
-            batch["tgt_class"],
-        ) = accelerator.gather_for_metrics(
+            # gather for multi-gpu
             (
                 LOSS,
                 LOCATE_PREDS,
@@ -96,29 +86,40 @@ def single_epoch_train(
                 locate_tgt,
                 batch["ctx_class"],
                 batch["tgt_class"],
-            )
-        )
-
-        rf3d_loss_list.append(float(RF3D_LOSS.mean()))
-        point_e_loss_list.append(float(losses.mean()))
-        total_loss_list.append(float(LOSS.mean()))
-
-        metrics["train_rf3d_loc_estimate"].add_batch(
-            predictions=LOCATE_PREDS,
-            references=locate_tgt,
-        )
-
-        if args.obj_cls_alpha > 0:
-            metrics["train_rf3d_cls_acc"].add_batch(
-                predictions=CLASS_LOGITS.argmax(-1).flatten(),
-                references=batch["ctx_class"].flatten(),
+            ) = accelerator.gather_for_metrics(
+                (
+                    LOSS,
+                    LOCATE_PREDS,
+                    CLASS_LOGITS,
+                    LANG_LOGITS,
+                    RF3D_LOSS,
+                    losses,
+                    locate_tgt,
+                    batch["ctx_class"],
+                    batch["tgt_class"],
+                )
             )
 
-        if args.lang_cls_alpha > 0:
-            metrics["train_rf3d_txt_acc"].add_batch(
-                predictions=LANG_LOGITS.argmax(-1),
-                references=batch["tgt_class"],
+            rf3d_loss_list.append(float(RF3D_LOSS.mean()))
+            point_e_loss_list.append(float(losses.mean()))
+            total_loss_list.append(float(LOSS.mean()))
+
+            metrics["train_rf3d_loc_estimate"].add_batch(
+                predictions=LOCATE_PREDS,
+                references=locate_tgt,
             )
+
+            if args.obj_cls_alpha > 0:
+                metrics["train_rf3d_cls_acc"].add_batch(
+                    predictions=CLASS_LOGITS.argmax(-1).flatten(),
+                    references=batch["ctx_class"].flatten(),
+                )
+
+            if args.lang_cls_alpha > 0:
+                metrics["train_rf3d_txt_acc"].add_batch(
+                    predictions=LANG_LOGITS.argmax(-1),
+                    references=batch["tgt_class"],
+                )
 
     #############################
     #                           #
@@ -133,8 +134,12 @@ def single_epoch_train(
         "train_point_e_loss": np.mean(point_e_loss_list),
         "train_rf3d_loc_dist": loc_estimate["dist"],
         "train_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
-        "train_rf3d_cls_acc": metrics["train_rf3d_cls_acc"].compute(ignore_label=pad_idx),
-        "train_rf3d_txt_acc": metrics["train_rf3d_txt_acc"].compute(ignore_label=pad_idx),
+        "train_rf3d_cls_acc": metrics["train_rf3d_cls_acc"].compute(ignore_label=pad_idx)[
+            "accuracy"
+        ],
+        "train_rf3d_txt_acc": metrics["train_rf3d_txt_acc"].compute(ignore_label=pad_idx)[
+            "accuracy"
+        ],
     }
 
     return ret
@@ -261,8 +266,8 @@ def evaluate_on_dataset(
         "test_rf3d_loss": np.mean(rf3d_loss_list),
         "test_rf3d_loc_dist": loc_estimate["dist"],
         "test_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
-        "test_rf3d_cls_acc": metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx),
-        "test_rf3d_txt_acc": metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx),
+        "test_rf3d_cls_acc": metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx)["accuracy"],
+        "test_rf3d_txt_acc": metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx)["accuracy"],
         "test_point_e_pc_cd_dist": poine_e_pc_cd["distance"],
         "test_point_e_pc_cd_feat_diff": poine_e_pc_cd["feat_diff"],
     }

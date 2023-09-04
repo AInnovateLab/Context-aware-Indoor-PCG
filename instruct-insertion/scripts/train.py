@@ -4,8 +4,8 @@
 import json
 import os.path as osp
 import pprint
+import shutil
 import sys
-import time
 from datetime import datetime
 
 from termcolor import colored
@@ -90,7 +90,10 @@ def main():
     )
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = Accelerator(
-        log_with="tensorboard", project_config=acc_config, kwargs_handlers=[ddp_kwargs]
+        log_with="tensorboard",
+        project_config=acc_config,
+        kwargs_handlers=[ddp_kwargs],
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     # tracker setup
     accelerator.init_trackers(args.project_name, config=vars(args))
@@ -102,7 +105,7 @@ def main():
             args.project_top_dir,
             args.project_name,
             "logs",
-            project_start_time.strftime(DATE_FMT),
+            project_start_time.strftime(DATE_FMT) + ".log",
         ),
     )
     logger = get_logger(__name__)
@@ -113,6 +116,11 @@ def main():
     if accelerator.is_main_process and accelerator.num_processes > 1:
         logger.info(
             f"Distributed training with {accelerator.num_processes} processes.",
+            main_process_only=True,
+        )
+    if args.gradient_accumulation_steps > 1:
+        logger.info(
+            f"Gradient accumulation steps: {args.gradient_accumulation_steps}",
             main_process_only=True,
         )
     device = accelerator.device
@@ -338,7 +346,6 @@ def main():
             disable=not accelerator.is_main_process,
         ) as bar:
             for epoch in bar:
-                logger.info(f"Current LR: {lr_scheduler.get_last_lr()}", main_process_only=True)
                 # Train:
                 train_meters = single_epoch_train(
                     accelerator=accelerator,
@@ -370,7 +377,7 @@ def main():
                     metrics=metrics,
                 )
 
-                test_cd_dist: float = evaluate_meters["test_point_e_pc_cd"]
+                test_cd_dist: float = evaluate_meters["test_point_e_pc_cd_dist"]
 
                 lr_scheduler.step()
 
@@ -390,6 +397,16 @@ def main():
                             ),
                             main_process_only=True,
                         )
+                        old_best_path = osp.join(
+                            args.project_top_dir,
+                            args.project_name,
+                            "checkpoints",
+                            f"best_cd_{best_test_cd_dist:.4f}_epoch_{best_test_epoch}",
+                        )
+                        # remove old best
+                        if osp.exists(old_best_path):
+                            shutil.rmtree(old_best_path)
+                        # save new best
                         best_test_cd_dist = test_cd_dist
                         best_test_epoch = epoch
                         accelerator.save_state(
@@ -428,6 +445,7 @@ def main():
             point_e=point_e,
             sampler=sampler,
             data_loader=data_loaders["test_small"],
+            # data_loader=data_loaders["test"],
             device=device,
             pad_idx=pad_idx,
             args=args,

@@ -137,6 +137,9 @@ def parse_arguments(notebook_options=None):
     )
     parser.add_argument("--lr-sched", type=str, default="linear", help="lr scheduler type.")
     parser.add_argument(
+        "--gradient-accumulation-steps", type=int, default=1, help="gradient accumulation steps."
+    )
+    parser.add_argument(
         "--resume-path",
         type=str,
         default=None,
