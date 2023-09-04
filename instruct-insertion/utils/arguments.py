@@ -67,7 +67,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument(
         "--max-context-objects",
         type=int,
-        default=50,
+        default=63,
         help="Maximum number of context objects in the scene.",
     )
     parser.add_argument(

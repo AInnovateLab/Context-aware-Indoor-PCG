@@ -21,21 +21,27 @@ def scannet_official_train_val(
     """
     logger = get_logger(__name__)
     path_prefix = pathlib.Path(__file__).parent.parent.absolute()
-    train_split = osp.join(path_prefix, "meta/scannet/splits/official/v2/scannetv2_train.txt")
-    train_split = read_lines(train_split)
-    test_split = osp.join(path_prefix, "meta/scannet/splits/official/v2/scannetv2_val.txt")
-    test_split = read_lines(test_split)
+    splits_desc = {
+        "train": "meta/scannet/splits/official/v2/scannetv2_train.txt",
+        "test": "meta/scannet/splits/official/v2/scannetv2_val.txt",
+        "test_small": "meta/scannet/splits/official/v2/scannetv2_val_small.txt",
+    }
+    splits = dict()
+    for k, v in splits_desc.items():
+        path = osp.join(path_prefix, v)
+        splits[k] = read_lines(path)
 
     if valid_views is not None:
-        train_split = [sc for sc in train_split if sc[-2:] in valid_views]
-        test_split = [sc for sc in test_split if sc[-2:] in valid_views]
+        for k in splits:
+            splits[k] = [sc for sc in splits[k] if sc[-2:] in valid_views]
 
     if verbose:
-        logger.debug("#train/test scans:", len(train_split), "/", len(test_split))
+        for k in splits:
+            logger.debug(f"{k} split has {len(splits[k])} scans.")
 
     scans_split = dict()
-    scans_split["train"] = set(train_split)
-    scans_split["test"] = set(test_split)
+    for k in splits:
+        scans_split[k] = set(splits[k])
     return scans_split
 
 
@@ -96,13 +102,15 @@ def load_referential_data(
     ]
 
     # Add the is_train data to the pandas data frame (needed in creating data loaders for the train and test)
-    is_train = referit_data.scan_id.apply(lambda x: x in scans_split["train"])
-    referit_data["is_train"] = is_train
+    for split_name, split_scan_ids in scans_split.items():
+        cond = referit_data.scan_id.apply(lambda x: x in split_scan_ids)
+        referit_data[f"is_{split_name}"] = cond
 
     # do this last, so that all the previous actions remain unchanged
     if args.augment_with_sr3d is not None:
         logger.info("Adding Sr3D as augmentation.")
         sr3d = pd.read_csv(args.augment_with_sr3d)
+        # NOTE: sr3d only takes training data
         is_train = sr3d.scan_id.apply(lambda x: x in scans_split["train"])
         sr3d["is_train"] = is_train
         sr3d = sr3d[is_train]

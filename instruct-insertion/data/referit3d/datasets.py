@@ -190,8 +190,7 @@ def make_data_loaders(
     mean_rgb: np.ndarray,
     tokenizer: PreTrainedTokenizer,
 ):
-    data_loaders: Dict[Literal["train", "test"], DataLoader] = dict()
-    is_train = referit_data["is_train"]
+    data_loaders: Dict[Literal["train", "test", "test_small"], DataLoader] = dict()
 
     object_transformation = partial(
         normalize_pc, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
@@ -220,8 +219,9 @@ def make_data_loaders(
         )
         return batch
 
-    for split in ("train", "test"):
-        mask = is_train if split == "train" else ~is_train
+    for split in ("train", "test", "test_small"):
+        mask = referit_data[f"is_{split}"]
+
         d_set = referit_data[mask]
         d_set.reset_index(drop=True, inplace=True)
 

@@ -8,6 +8,7 @@ import sys
 import time
 from datetime import datetime
 
+from termcolor import colored
 from torch import optim
 from tqdm import tqdm
 
@@ -239,6 +240,9 @@ def main():
         s_churn=[3],
     )
 
+    best_test_cd_dist = float("inf")
+    best_test_epoch = -1
+
     # Resume training
     if args.resume_path:
         accelerator.load_state(args.resume_path)
@@ -246,17 +250,26 @@ def main():
         start_training_epoch = lr_scheduler.last_epoch + 1
         logger.info(f"Starting from epoch {start_training_epoch}.", main_process_only=True)
         # TODO - search in the same folder for the best model metrics so far
+        # get checkpoint name
+        checkpoint_name: str = osp.basename(args.resume_path)
+        # format check
+        if checkpoint_name.startswith("best_"):
+            splits = checkpoint_name.split("_")
+            if splits[1] == "cd" and splits[3] == "epoch":
+                best_test_cd_dist = float(splits[2])
+                best_test_epoch = int(splits[4])
+            else:
+                logger.warning(
+                    "Incompatible checkpoint name. Cannot resume best test metrics.",
+                    main_process_only=True,
+                )
+
     else:
         start_training_epoch = 0
         if args.mode == "test":
             logger.warning(
                 "No resume path provided. Starting evaluation from scratch.", main_process_only=True
             )
-
-    best_test_acc = -1
-    best_test_epoch = -1
-    last_test_acc = -1
-    last_test_epoch = -1
 
     # metrics for evaluation
     with accelerator.local_main_process_first():
@@ -281,7 +294,7 @@ def main():
             ),
             "test_point_e_pc_cd": evaluate.load(
                 LOCAL_METRIC_PATHS["pairwise_cd"],
-                n_features=7 if args.height_append else 6,
+                n_features=6,  # xyz, rgb
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
                 experiment_id="test_point_e_pc_cd",
@@ -324,11 +337,9 @@ def main():
             desc="epochs",
             disable=not accelerator.is_main_process,
         ) as bar:
-            timings = dict()
             for epoch in bar:
                 logger.info(f"Current LR: {lr_scheduler.get_last_lr()}", main_process_only=True)
                 # Train:
-                tic = time.time()
                 train_meters = single_epoch_train(
                     accelerator=accelerator,
                     MVT3DVG=mvt3dvg,
@@ -342,61 +353,62 @@ def main():
                     metrics=metrics,
                     epoch=epoch,
                 )
-                toc = time.time()
-                timings["train"] = (toc - tic) / 60
+                # add learning rate to the metrics
+                train_meters["lr"] = max(lr_scheduler.get_last_lr())
 
-                accelerator.log(train_meters)
+                accelerator.log(train_meters, step=epoch)
 
-                # TODO - Fix Evaluate
-                # Evaluate:
-                # tic = time.time()
-                # test_meters = evaluate_on_dataset(
-                #     mvt3dvg,
-                #     data_loaders["test"],
-                #     criteria,
-                #     device,
-                #     pad_idx,
-                #     args=args,
-                #     tokenizer=tokenizer,
-                # )
-                # toc = time.time()
-                # timings["test"] = (toc - tic) / 60
+                evaluate_meters = evaluate_on_dataset(
+                    accelerator=accelerator,
+                    MVT3DVG=mvt3dvg,
+                    point_e=point_e,
+                    sampler=sampler,
+                    data_loader=data_loaders["test_small"],
+                    device=device,
+                    pad_idx=pad_idx,
+                    args=args,
+                    metrics=metrics,
+                )
 
-                # eval_acc = test_meters["test_referential_acc"]
-
-                # last_test_acc = eval_acc
-                # last_test_epoch = epoch
+                test_cd_dist: float = evaluate_meters["test_point_e_pc_cd"]
 
                 lr_scheduler.step()
 
-                # TODO - Also save the best model
+                # Checkpoints
                 if accelerator.is_main_process:
+                    # save last states
                     accelerator.save_state(
-                        osp.join(
-                            args.project_top_dir, args.project_name, "checkpoints", "last_model"
-                        )
+                        osp.join(args.project_top_dir, args.project_name, "checkpoints", "last")
                     )
 
-                # TODO - Fix Log
-                # if best_test_acc < eval_acc:
-                #     logger.info(colored("Test accuracy, improved @epoch {}".format(epoch), "green"))
-                #     best_test_acc = eval_acc
-                #     best_test_epoch = epoch
+                    # save best states
+                    if best_test_cd_dist > test_cd_dist:
+                        logger.info(
+                            colored(
+                                f"Training test CD distance: {best_test_cd_dist: .4f}, improved @epoch {epoch}",
+                                "green",
+                            ),
+                            main_process_only=True,
+                        )
+                        best_test_cd_dist = test_cd_dist
+                        best_test_epoch = epoch
+                        accelerator.save_state(
+                            osp.join(
+                                args.project_top_dir,
+                                args.project_name,
+                                "checkpoints",
+                                f"best_cd_{test_cd_dist:.4f}_epoch_{epoch}",
+                            )
+                        )
+                    else:
+                        logger.info(
+                            colored(
+                                f"Training test CD distance: {best_test_cd_dist: .4f}, did not improve @epoch {epoch} since @epoch {best_test_epoch}",
+                                "red",
+                            ),
+                            main_process_only=True,
+                        )
 
-                #     save_state_dicts(
-                #         osp.join(args.checkpoint_dir, "best_model.pth"),
-                #         epoch,
-                #         model=mvt3dvg,
-                #         optimizer=optimizer,
-                #         lr_scheduler=lr_scheduler,
-                #     )
-                # else:
-                #     logger.info(
-                #         colored("Test accuracy, did not improve @epoch {}".format(epoch), "red")
-                #     )
-
-                # log_train_test_information()
-                # train_meters.update(test_meters)
                 bar.refresh()
 
         accelerator.end_training()
@@ -415,7 +427,7 @@ def main():
             MVT3DVG=mvt3dvg,
             point_e=point_e,
             sampler=sampler,
-            data_loader=data_loaders["test"],
+            data_loader=data_loaders["test_small"],
             device=device,
             pad_idx=pad_idx,
             args=args,
@@ -432,7 +444,7 @@ def main():
             )
             logger.info(f"Saving test metrics to {out_path}", main_process_only=True)
             with open(out_path, "w") as f:
-                json.dump(evaluate_meters, f)
+                json.dump(evaluate_meters, f, indent=4)
 
 
 if __name__ == "__main__":

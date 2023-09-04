@@ -99,9 +99,9 @@ def single_epoch_train(
             )
         )
 
-        rf3d_loss_list.append(RF3D_LOSS.mean())
-        point_e_loss_list.append(losses.mean())
-        total_loss_list.append(LOSS.mean())
+        rf3d_loss_list.append(float(RF3D_LOSS.mean()))
+        point_e_loss_list.append(float(losses.mean()))
+        total_loss_list.append(float(LOSS.mean()))
 
         metrics["train_rf3d_loc_estimate"].add_batch(
             predictions=LOCATE_PREDS,
@@ -133,8 +133,8 @@ def single_epoch_train(
         "train_point_e_loss": np.mean(point_e_loss_list),
         "train_rf3d_loc_dist": loc_estimate["dist"],
         "train_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
-        "train_rf3d_cls_acc": metrics["train_rf3d_cls_acc"].compute(ignore=pad_idx),
-        "train_rf3d_txt_acc": metrics["train_rf3d_txt_acc"].compute(ignore=pad_idx),
+        "train_rf3d_cls_acc": metrics["train_rf3d_cls_acc"].compute(ignore_label=pad_idx),
+        "train_rf3d_txt_acc": metrics["train_rf3d_txt_acc"].compute(ignore_label=pad_idx),
     }
 
     return ret
@@ -225,7 +225,7 @@ def evaluate_on_dataset(
             )
         )
 
-        rf3d_loss_list.append(LOSS.mean())
+        rf3d_loss_list.append(float(LOSS.mean()))
 
         metrics["test_rf3d_loc_estimate"].add_batch(
             predictions=LOCATE_PREDS,
@@ -245,7 +245,7 @@ def evaluate_on_dataset(
             )
 
         metrics["test_point_e_pc_cd"].add_batch(
-            predictions=diff_pcs,
+            predictions=diff_pcs[..., :6],
             references=batch["tgt_pc"][..., :6],
         )
 
@@ -261,8 +261,8 @@ def evaluate_on_dataset(
         "test_rf3d_loss": np.mean(rf3d_loss_list),
         "test_rf3d_loc_dist": loc_estimate["dist"],
         "test_rf3d_loc_radius_diff": loc_estimate["radius_diff"],
-        "test_rf3d_cls_acc": metrics["test_rf3d_cls_acc"].compute(ignore=pad_idx),
-        "test_rf3d_txt_acc": metrics["test_rf3d_txt_acc"].compute(ignore=pad_idx),
+        "test_rf3d_cls_acc": metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx),
+        "test_rf3d_txt_acc": metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx),
         "test_point_e_pc_cd_dist": poine_e_pc_cd["distance"],
         "test_point_e_pc_cd_feat_diff": poine_e_pc_cd["feat_diff"],
     }
