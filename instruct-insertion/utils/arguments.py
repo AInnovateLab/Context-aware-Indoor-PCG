@@ -109,10 +109,29 @@ def parse_arguments(notebook_options=None):
     ############################
     parser.add_argument("--mode", type=str, default="train", choices=["train", "test", "vis"])
     parser.add_argument(
-        "--max-train-epochs",
+        "--global-training-steps",
         type=int,
-        default=100,
-        help="number of training epochs. [default: 100]",
+        default=200_000,
+        help="Number of global training steps among all processes. "
+        "For example, if 2 GPUs are used, then each step would be taken as 2 global steps.[default: 200_000]",
+    )
+    parser.add_argument(
+        "--training-metric-interval",
+        type=int,
+        default=3_000,
+        help="Number of global training steps to log training metrics. [default: 3_000]",
+    )
+    parser.add_argument(
+        "--evaluation-interval",
+        type=int,
+        default=5_000,
+        help="Number of global training steps to take before each evaluation. [default: 5_000]",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=30_000,
+        help="Number of global training steps to take before regular checkpointing. [default: 30_000]",
     )
     parser.add_argument(
         "--batch-size", type=int, default=16, help="batch size per gpu. [default: 32]"

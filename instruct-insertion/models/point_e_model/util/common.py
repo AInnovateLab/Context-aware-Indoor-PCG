@@ -55,9 +55,9 @@ class ConcatSquashLinear(Module):
         return ret
 
 
-def get_linear_scheduler(optimizer, start_epoch, end_epoch, start_lr, end_lr):
+def get_linear_scheduler(optimizer, start_step, end_step, start_lr, end_lr):
     def lr_func(epoch):
-        return np.interp(epoch, [start_epoch, end_epoch], [1.0, end_lr / start_lr])
+        return np.interp(epoch, [start_step, end_step], [1.0, end_lr / start_lr])
 
     return LambdaLR(optimizer, lr_lambda=lr_func)
 

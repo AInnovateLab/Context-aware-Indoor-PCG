@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 # NOTE: re-import
 from accelerate import Accelerator
 from accelerate.logging import get_logger  # noqa
+from coloredlogs import ColoredFormatter
 
 from .misc import create_dir
 
@@ -15,14 +16,15 @@ if TYPE_CHECKING:
 
 def init_logger(
     accelerator: Accelerator,
-    level: int = logging.INFO,
     log_file: "PathLike" = None,
     log_dir: "PathLike" = None,
 ):
-    handlers = list()
-    handlers.append(logging.StreamHandler(sys.stdout))
     fmt_str = "[%(levelname)s, %(name)s] %(asctime)s - %(message)s"
     datefmt_str = "%Y-%m-%d %H:%M:%S"
+    handlers = list()
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setFormatter(ColoredFormatter(fmt_str, datefmt=datefmt_str))
+    handlers.append(stdout_handler)
 
     # Add logging to file handler
     if accelerator.is_main_process:
@@ -37,4 +39,4 @@ def init_logger(
             file_handler.setFormatter(logging.Formatter(fmt_str, datefmt=datefmt_str))
             handlers.append(file_handler)
 
-    logging.basicConfig(level=level, format=fmt_str, handlers=handlers, datefmt=datefmt_str)
+    logging.basicConfig(format=fmt_str, handlers=handlers, datefmt=datefmt_str)

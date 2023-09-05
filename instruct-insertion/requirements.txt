@@ -8,6 +8,7 @@ certifi==2022.12.7
 charset-normalizer==2.1.1
 clip @ git+https://github.com/openai/CLIP.git@a1d071733d7111c9c014f024669f959182114e33
 cmake==3.25.0
+coloredlogs==15.0.1
 contourpy==1.1.0
 cycler==0.11.0
 Cython==0.29.28

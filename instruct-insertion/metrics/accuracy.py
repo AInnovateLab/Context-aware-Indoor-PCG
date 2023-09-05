@@ -1,3 +1,5 @@
+from typing import Optional
+
 import evaluate
 import numpy as np
 from evaluate.info import EvaluationModuleInfo
@@ -6,10 +8,14 @@ from sklearn.metrics import accuracy_score
 import datasets
 
 
-class Accuracy(evaluate.Metric):
+class AccuracyWithIgnoredLabel(evaluate.Metric):
+    def __init__(self, *args, ignore_label: Optional[int] = None, **kwargs):
+        self.ignore_label = ignore_label
+        super().__init__(*args, **kwargs)
+
     def _info(self) -> EvaluationModuleInfo:
         return evaluate.MetricInfo(
-            description="Accuracy with ignore label",
+            description="Accuracy with ignored label",
             citation="",
             inputs_description="",
             features=datasets.Features(
@@ -37,6 +43,7 @@ class Accuracy(evaluate.Metric):
         references = np.array(references)
         assert predictions.shape == references.shape
         assert predictions.ndim == 1
+        ignore_label = ignore_label or self.ignore_label
         if ignore_label is not None:
             # Remove ignore label
             ignore_index = np.where(references == ignore_label)

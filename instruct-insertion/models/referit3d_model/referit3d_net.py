@@ -105,7 +105,6 @@ class ReferIt3DNet_transformer(nn.Module):
         self.rotate_number = args.rotate_number
 
         self.label_lang_sup = args.label_lang_sup
-        self.aggregate_type = args.aggregate_type
 
         self.encoder_layer_num = args.encoder_layer_num
         self.decoder_layer_num = args.decoder_layer_num
@@ -363,13 +362,7 @@ class ReferIt3DNet_transformer(nn.Module):
         )  # (B, V, N+1, C)
 
         ctx_embeds = out_feats[:, :, 0, :]  # (B, V, C)
-
-        if self.aggregate_type == "avg":
-            ctx_embeds = ctx_embeds.mean(dim=1)
-        elif self.aggregate_type == "avgmax":
-            ctx_embeds = ctx_embeds.mean(dim=1) + ctx_embeds.max(dim=1)
-        else:
-            ctx_embeds = ctx_embeds.max(dim=1)
+        ctx_embeds = ctx_embeds.mean(dim=1)  # (B, C)
 
         ######################
         #                    #

@@ -37,11 +37,12 @@ from data.referit3d.in_out.neural_net_oriented import (
 ##################
 # isort: split
 import evaluate
+import torch
+import train_utils
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import ProjectConfiguration, set_seed
 from metrics import LOCAL_METRIC_PATHS
 from torch import optim
-from train_utils import evaluate_on_dataset, single_epoch_train
 
 ##################################
 #                                #
@@ -106,12 +107,12 @@ def main():
             args.project_top_dir,
             args.project_name,
             "logs",
-            project_time.strftime(DATE_FMT) + ".log",
+            project_time_str + ".log",
         ),
     )
     logger = get_logger(__name__)
     logger.info(
-        f"Project {args.project_name} start at {project_time.strftime(DATE_FMT)}",
+        f"Project {args.project_name} start at {project_time_str}.",
         main_process_only=True,
     )
     if accelerator.is_main_process and accelerator.num_processes > 1:
@@ -126,6 +127,7 @@ def main():
         )
     device = accelerator.device
     set_seed(args.random_seed)
+    logger.info(f"Random seed: {args.random_seed}.", main_process_only=True)
     tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
 
     #######################
@@ -170,7 +172,8 @@ def main():
         assert False
     mvt3dvg = mvt3dvg.to(device)
     logger.info(
-        f"Model {args.mvt_model} architecture: {torchinfo.summary(mvt3dvg)}", main_process_only=True
+        f"Model {args.mvt_model} architecture: {torchinfo.summary(mvt3dvg, verbose=0)}",
+        main_process_only=True,
     )
 
     # model params
@@ -178,9 +181,9 @@ def main():
         {"params": mvt3dvg.obj_encoder.parameters(), "lr": args.init_lr},
         {"params": mvt3dvg.obj_encoder_agg_proj.parameters(), "lr": args.init_lr},
         #
-        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
+        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.2},
         #
-        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
+        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.2},
         #
         {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
         {"params": mvt3dvg.box_layers.parameters(), "lr": args.init_lr},
@@ -205,7 +208,7 @@ def main():
         point_e = model_from_config(point_e_config, device)
     point_e.to(device)
     logger.info(
-        f"Model {args.point_e_model} architecture: {torchinfo.summary(point_e)}",
+        f"Model {args.point_e_model} architecture: {torchinfo.summary(point_e, verbose=0)}",
         main_process_only=True,
     )
 
@@ -217,8 +220,8 @@ def main():
 
     lr_scheduler = get_linear_scheduler(
         optimizer,
-        start_epoch=0,
-        end_epoch=args.max_train_epochs,
+        start_step=1_000,
+        end_step=args.global_training_steps,
         start_lr=args.init_lr,
         end_lr=args.min_lr,
     )
@@ -257,34 +260,27 @@ def main():
         s_churn=[3],
     )
 
-    # Best metrics
-    best_test_metric = None
-    best_test_epoch = -1
-    best_test_metric_name = "test_point_e_pc_cls_acc"
-    best_test_metric_comp = operator.gt
+    misc_states = {
+        "global_training_steps": 0,
+        "training_metric_steps": 0,
+        "evaluation_steps": 0,
+        "checkpoint_steps": 0,
+        "best_test_metric": None,
+        "best_test_step": -1,
+        "best_test_metric_name": "test_point_e_pc_cls_acc",
+        "best_test_metric_comp": operator.gt,
+    }
 
     # Resume training
     if args.resume_path:
         accelerator.load_state(args.resume_path)
+        misc_states = torch.load(osp.join(args.resume_path, "misc_states.pkl"))
         logger.info(f"Resuming training from {args.resume_path}.", main_process_only=True)
-        start_training_epoch = lr_scheduler.state_dict()["last_epoch"] + 1
-        logger.info(f"Starting from epoch {start_training_epoch}.", main_process_only=True)
-        # get checkpoint name
-        checkpoint_name: str = osp.basename(args.resume_path)
-        # format check
-        if checkpoint_name.startswith("best_"):
-            splits = checkpoint_name.split("-")
-            if splits[1] == best_test_metric_name and splits[3] == "epoch":
-                best_test_metric = float(splits[2])
-                best_test_epoch = int(splits[4])
-            else:
-                logger.warning(
-                    "Incompatible checkpoint name. Cannot resume best test metrics.",
-                    main_process_only=True,
-                )
+        logger.info(
+            f"Starting from @step {misc_states['global_training_steps']}.", main_process_only=True
+        )
 
     else:
-        start_training_epoch = 0
         if args.mode == "test":
             logger.warning(
                 "No resume path provided. Starting evaluation from scratch.", main_process_only=True
@@ -292,7 +288,14 @@ def main():
 
     # metrics for evaluation
     with accelerator.local_main_process_first():
-        test_metrics = {
+        metrics_dict = dict()
+        metrics_dict["test"] = {
+            "test_rf3d_loss": evaluate.load(
+                LOCAL_METRIC_PATHS["average"],
+                process_id=accelerator.process_index,
+                num_process=accelerator.num_processes,
+                experiment_id="test_rf3d_loss",
+            ),
             "test_rf3d_loc_estimate": evaluate.load(
                 LOCAL_METRIC_PATHS["loc_estimate"],
                 process_id=accelerator.process_index,
@@ -304,12 +307,14 @@ def main():
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
                 experiment_id="test_rf3d_cls_acc",
+                ignore_label=pad_idx,
             ),
             "test_rf3d_txt_acc": evaluate.load(
                 LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
                 experiment_id="test_rf3d_txt_acc",
+                ignore_label=pad_idx,
             ),
             "test_point_e_pc_cd": evaluate.load(
                 LOCAL_METRIC_PATHS["pairwise_cd"],
@@ -323,6 +328,7 @@ def main():
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
                 experiment_id="test_point_e_pc_cls_acc",
+                # NOTE - no ignored label here
             ),
         }
 
@@ -335,7 +341,25 @@ def main():
         logger.info("Starting the training. Good luck!", main_process_only=True)
         with accelerator.local_main_process_first():
             # load metrics
-            metrics = {
+            metrics_dict["train"] = {
+                "train_rf3d_loss": evaluate.load(
+                    LOCAL_METRIC_PATHS["average"],
+                    process_id=accelerator.process_index,
+                    num_process=accelerator.num_processes,
+                    experiment_id="train_rf3d_loss",
+                ),
+                "train_point_e_loss": evaluate.load(
+                    LOCAL_METRIC_PATHS["average"],
+                    process_id=accelerator.process_index,
+                    num_process=accelerator.num_processes,
+                    experiment_id="train_point_e_loss",
+                ),
+                "train_total_loss": evaluate.load(
+                    LOCAL_METRIC_PATHS["average"],
+                    process_id=accelerator.process_index,
+                    num_process=accelerator.num_processes,
+                    experiment_id="train_total_loss",
+                ),
                 "train_rf3d_loc_estimate": evaluate.load(
                     LOCAL_METRIC_PATHS["loc_estimate"],
                     process_id=accelerator.process_index,
@@ -347,116 +371,149 @@ def main():
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
                     experiment_id="train_rf3d_cls_acc",
+                    ignore_label=pad_idx,
                 ),
                 "train_rf3d_txt_acc": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
                     experiment_id="train_rf3d_txt_acc",
+                    ignore_label=pad_idx,
                 ),
             }
-            metrics.update(test_metrics)
 
         with tqdm(
-            range(start_training_epoch, args.max_train_epochs),
-            desc="epochs",
+            desc="global_steps",
+            initial=misc_states["global_training_steps"],
+            total=args.global_training_steps,
             disable=not accelerator.is_main_process,
         ) as bar:
-            for epoch in bar:
-                # Train:
-                train_meters = single_epoch_train(
-                    accelerator=accelerator,
-                    MVT3DVG=mvt3dvg,
-                    point_e=point_e,
-                    sampler=sampler,
-                    data_loader=data_loaders["train"],
-                    optimizer=optimizer,
-                    device=device,
-                    pad_idx=pad_idx,
-                    args=args,
-                    metrics=metrics,
-                    epoch=epoch,
-                )
-                # add learning rate to the metrics
-                train_meters["lr"] = max(lr_scheduler.get_last_lr())
+            ckpt_save_dir = osp.join(
+                args.project_top_dir,
+                args.project_name,
+                "checkpoints",
+                project_time_str,
+            )
+            for current_global_steps in train_utils.start_training_loop_steps(
+                accelerator=accelerator,
+                MVT3DVG=mvt3dvg,
+                point_e=point_e,
+                sampler=sampler,
+                data_loader=data_loaders["train"],
+                optimizer=optimizer,
+                scheduler=lr_scheduler,
+                device=device,
+                args=args,
+                metrics_=metrics_dict["train"],
+                start_global_steps=misc_states["global_training_steps"],
+            ):
+                # update misc states
+                misc_states["global_training_steps"] = current_global_steps
+                # training metrics log
+                if (
+                    current_global_steps
+                    >= misc_states["training_metric_steps"] + args.training_metric_interval
+                ):
+                    logger.debug(
+                        f"Logging training metrics @step {current_global_steps}...",
+                        main_process_only=True,
+                    )
+                    train_meters = train_utils.compute_metrics(metrics_dict["train"])
+                    # add learning rate to the metrics
+                    train_meters["lr"] = max(lr_scheduler.get_last_lr())
+                    accelerator.log(train_meters, step=current_global_steps)
+                    misc_states["training_metric_steps"] = current_global_steps
 
-                accelerator.log(train_meters, step=epoch)
-
-                evaluate_meters = evaluate_on_dataset(
-                    accelerator=accelerator,
-                    MVT3DVG=mvt3dvg,
-                    point_e=point_e,
-                    sampler=sampler,
-                    data_loader=data_loaders["test_small"],
-                    device=device,
-                    pad_idx=pad_idx,
-                    args=args,
-                    metrics=metrics,
-                )
-
-                accelerator.log(evaluate_meters, step=epoch)
-
-                test_metric: float = evaluate_meters[best_test_metric_name]
-
-                if accelerator.is_main_process:
-                    lr_scheduler.step()
+                if (
+                    current_global_steps
+                    >= misc_states["evaluation_steps"] + args.evaluation_interval
+                ):
+                    # evaluation in training phase
+                    logger.info(
+                        f"Evaluating @step {current_global_steps}...", main_process_only=True
+                    )
+                    train_utils.evaluate_on_dataset(
+                        accelerator=accelerator,
+                        MVT3DVG=mvt3dvg,
+                        point_e=point_e,
+                        sampler=sampler,
+                        data_loader=data_loaders["test_small"],
+                        device=device,
+                        args=args,
+                        metrics_=metrics_dict["test"],
+                    )
+                    evaluate_meters = train_utils.compute_metrics(metrics_dict["test"])
+                    accelerator.log(evaluate_meters, step=current_global_steps)
+                    misc_states["evaluation_steps"] = current_global_steps
+                    # checkpointing for best model
+                    if accelerator.is_local_main_process:
+                        best_test_metric_name: str = misc_states["best_test_metric_name"]
+                        best_test_metric_comp = misc_states["best_test_metric_comp"]
+                        test_metric: float = evaluate_meters[best_test_metric_name]
+                        # save best states
+                        if misc_states["best_test_metric"] is None or best_test_metric_comp(
+                            test_metric, misc_states["best_test_metric"]
+                        ):
+                            logger.info(
+                                colored(
+                                    f"Training metric `{best_test_metric_name}`: {test_metric: .4f}, "
+                                    f"improved @step {current_global_steps}",
+                                    "green",
+                                ),
+                                main_process_only=True,
+                            )
+                            old_best_path = (
+                                osp.join(
+                                    ckpt_save_dir,
+                                    f"best-{best_test_metric_name}-"
+                                    f"{misc_states['best_test_metric']:.4f}-"
+                                    f"step-{misc_states['best_test_step']}",
+                                )
+                                if misc_states["best_test_metric"] is not None
+                                else None
+                            )
+                            # remove old best
+                            if old_best_path is not None and osp.exists(old_best_path):
+                                shutil.rmtree(old_best_path)
+                            # save new best
+                            misc_states["best_test_metric"] = test_metric
+                            misc_states["best_test_step"] = current_global_steps
+                            ckpt_name = f"best-{best_test_metric_name}-{test_metric:.4f}-step-{current_global_steps}"
+                            accelerator.save_state(osp.join(ckpt_save_dir, ckpt_name))
+                            accelerator.save(
+                                misc_states, osp.join(ckpt_save_dir, ckpt_name, "misc_states.pkl")
+                            )
+                        else:
+                            logger.info(
+                                colored(
+                                    f"Training metric `{best_test_metric_name}`: {test_metric: .4f}, "
+                                    f"did not improve @step {current_global_steps} "
+                                    f"since @step {misc_states['best_test_step']}",
+                                    "red",
+                                ),
+                                main_process_only=True,
+                            )
 
                 # Checkpoints
-                if accelerator.is_main_process:
-                    # save last states
-                    accelerator.save_state(
-                        osp.join(
-                            args.project_top_dir,
-                            args.project_name,
-                            "checkpoints",
-                            project_time.strftime(DATE_FMT),
-                            "last",
-                        )
-                    )
-
-                    # save best states
-                    if best_test_metric is None or best_test_metric_comp(
-                        test_metric, best_test_metric
+                if accelerator.is_local_main_process:
+                    if (
+                        current_global_steps
+                        >= misc_states["checkpoint_steps"] + args.checkpoint_interval
                     ):
                         logger.info(
-                            colored(
-                                f"Training metric `{best_test_metric_name}`: {test_metric: .4f}, improved @epoch {epoch}",
-                                "green",
-                            ),
-                            main_process_only=True,
+                            f"Checkpointing @step {current_global_steps}...", main_process_only=True
                         )
-                        old_best_path = osp.join(
-                            args.project_top_dir,
-                            args.project_name,
-                            "checkpoints",
-                            project_time.strftime(DATE_FMT),
-                            f"best-{best_test_metric_name}-{best_test_metric:.4f}-epoch-{best_test_epoch}",
-                        )
-                        # remove old best
-                        if osp.exists(old_best_path):
-                            shutil.rmtree(old_best_path)
-                        # save new best
-                        best_test_metric = test_metric
-                        best_test_epoch = epoch
-                        accelerator.save_state(
-                            osp.join(
-                                args.project_top_dir,
-                                args.project_name,
-                                "checkpoints",
-                                project_time.strftime(DATE_FMT),
-                                f"best-{best_test_metric_name}-{test_metric:.4f}-epoch-{epoch}",
-                            )
-                        )
-                    else:
-                        logger.info(
-                            colored(
-                                f"Training metric `{best_test_metric_name}`: {test_metric: .4f}, did not improve @epoch {epoch} "
-                                f"since @epoch {best_test_epoch}",
-                                "red",
-                            ),
-                            main_process_only=True,
+                        # save last states
+                        ckpt_name = f"ckpt_{current_global_steps}"
+                        accelerator.save_state(osp.join(ckpt_save_dir, ckpt_name))
+                        misc_states["checkpoint_steps"] = current_global_steps
+                        # save misc states
+                        accelerator.save(
+                            misc_states, osp.join(ckpt_save_dir, ckpt_name, "misc_states.pkl")
                         )
 
+                # bar update
+                bar.update(current_global_steps - bar.n)
                 bar.refresh()
 
         accelerator.end_training()
@@ -469,19 +526,17 @@ def main():
     ##################
     elif args.mode == "test":
         logger.info("Starting the evaluation. Good luck!", main_process_only=True)
-        metrics = test_metrics
-        evaluate_meters = evaluate_on_dataset(
+        train_utils.evaluate_on_dataset(
             accelerator=accelerator,
             MVT3DVG=mvt3dvg,
             point_e=point_e,
             sampler=sampler,
             data_loader=data_loaders["test_small"],
-            # data_loader=data_loaders["test"],
             device=device,
-            pad_idx=pad_idx,
             args=args,
-            metrics=metrics,
+            metrics_=metrics_dict["test"],
         )
+        evaluate_meters = train_utils.compute_metrics(metrics_dict["test"])
 
         if accelerator.is_main_process:
             logger.info(f"Test metrics: ", main_process_only=True)
@@ -489,7 +544,7 @@ def main():
             out_path = osp.join(
                 args.project_top_dir,
                 args.project_name,
-                f"test_metrics_{project_time.strftime(DATE_FMT)}.json",
+                f"test_metrics_{project_time_str}.json",
             )
             logger.info(f"Saving test metrics to {out_path}", main_process_only=True)
             with open(out_path, "w") as f:
