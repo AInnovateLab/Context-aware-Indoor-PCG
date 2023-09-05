@@ -138,7 +138,10 @@ class ReferIt3DNet_transformer(nn.Module):
             norm_args=edict({"norm": "bn"}),
         )
         self.obj_encoder_agg_proj = nn.Linear(
-            4 * 512 if self.height_append else 3 * 512, self.inner_dim
+            4 * (args.points_per_object // 2)
+            if self.height_append
+            else 3 * (args.points_per_object // 2),
+            self.inner_dim,
         )
 
         self.language_encoder = BertModel.from_pretrained(self.bert_pretrain_path)
