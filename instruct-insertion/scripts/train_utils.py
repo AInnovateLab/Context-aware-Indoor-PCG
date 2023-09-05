@@ -15,6 +15,7 @@ from models.point_e_model.util.plotting import plot_point_cloud
 from models.point_e_model.util.point_cloud import PointCloud
 from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from transformers import BatchEncoding
+from utils import create_dir
 
 
 def move_batch_to_device_(batch: Dict[str, Any], device):
@@ -216,16 +217,48 @@ def evaluate_on_dataset(
             v = aux[:, i]
             aux_input[name] = v
 
-        res = PointCloud(
-            coords=pos.t().cpu().numpy(),
-            channels={k: v[0].cpu().numpy() for k, v in aux_input.items()},
-        )
-        folder_name = "vis_demo"
-        img_name = "demo.png"
-        demo_path = os.path.join(folder_name, img_name)
-        res = plot_point_cloud(
-            res, color=True, grid_size=1, fixed_bounds=None, area=1, name=demo_path
-        )
+        for batch_idx in range(last_pcs.shape[0]):
+            demo_dir = os.path.join(
+                args.project_top_dir,
+                args.project_name,
+                "vis",
+            )
+            create_dir(demo_dir)
+            stimulus_id = batch["stimulus_id"][batch_idx]
+
+            pc = PointCloud(
+                coords=pos[batch_idx].t().cpu().numpy(),
+                channels={k: v[batch_idx].cpu().numpy() for k, v in aux_input.items()},
+            )
+            plot_point_cloud(
+                pc,
+                color=True,
+                grid_size=1,
+                fixed_bounds=((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+                area=1,
+                save_path=os.path.join(demo_dir, f"{stimulus_id}.png"),
+            )
+
+            tgt_pc = batch["tgt_pc"][batch_idx]  # (P, 6 or 7)
+            raw_pc = PointCloud(
+                coords=tgt_pc[:, :3].cpu().numpy(),
+                channels={
+                    "R": tgt_pc[:, 3].cpu().numpy(),
+                    "G": tgt_pc[:, 4].cpu().numpy(),
+                    "B": tgt_pc[:, 5].cpu().numpy(),
+                },
+            )
+            plot_point_cloud(
+                raw_pc,
+                color=True,
+                grid_size=1,
+                fixed_bounds=((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0)),
+                area=1,
+                save_path=os.path.join(demo_dir, f"raw_{stimulus_id}.png"),
+            )
+
+            # NOTE - break here since only save the first img each batch
+            break
 
         diff_pcs = torch.cat((pos, aux), dim=1)  # (B, D=6, P)
         diff_pcs = diff_pcs.transpose(1, 2)  # (B, P, D=6)

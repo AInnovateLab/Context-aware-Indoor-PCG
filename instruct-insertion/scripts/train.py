@@ -266,7 +266,7 @@ def main():
     if args.resume_path:
         accelerator.load_state(args.resume_path)
         logger.info(f"Resuming training from {args.resume_path}.", main_process_only=True)
-        start_training_epoch = lr_scheduler.last_epoch + 1
+        start_training_epoch = lr_scheduler.state_dict()["last_epoch"] + 1
         logger.info(f"Starting from epoch {start_training_epoch}.", main_process_only=True)
         # get checkpoint name
         checkpoint_name: str = osp.basename(args.resume_path)
@@ -397,7 +397,8 @@ def main():
 
                 test_metric: float = evaluate_meters[best_test_metric_name]
 
-                lr_scheduler.step()
+                if accelerator.is_main_process:
+                    lr_scheduler.step()
 
                 # Checkpoints
                 if accelerator.is_main_process:

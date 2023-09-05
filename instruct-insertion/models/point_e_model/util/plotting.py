@@ -3,6 +3,7 @@ from typing import Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
+from utils import PathLike
 
 from .point_cloud import PointCloud
 
@@ -12,11 +13,11 @@ def plot_point_cloud(
     color: bool = True,
     grid_size: int = 1,
     fixed_bounds: Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]] = (
-        (-0.75, -0.75, -0.75),
-        (0.75, 0.75, 0.75),
+        (-1.25, -1.25, -1.25),
+        (1.25, 1.25, 1.25),
     ),
     area=1,
-    name: str = "demo",
+    save_path: PathLike = "demo.png",
 ):
     """
     Render a point cloud as a plot to the given image path.
@@ -63,6 +64,5 @@ def plot_point_cloud(
                 ax.set_xlim3d(fixed_bounds[0][0], fixed_bounds[1][0])
                 ax.set_ylim3d(fixed_bounds[0][1], fixed_bounds[1][1])
                 ax.set_zlim3d(fixed_bounds[0][2], fixed_bounds[1][2])
-    plt.savefig(name + ".png")
-
-    return fig
+    plt.savefig(save_path)
+    plt.close(fig)

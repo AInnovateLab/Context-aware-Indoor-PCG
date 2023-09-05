@@ -95,8 +95,8 @@ def instance_labels_of_context(
 
 def normalize_pc(
     segmented_objects: np.ndarray,
-    mean_rgb: np.ndarray,
     unit_norm: bool,
+    mean_rgb: Optional[np.ndarray] = None,
     box_center: Optional[np.ndarray] = None,
     box_max_dist: Optional[np.ndarray] = None,
     inplace=True,
@@ -121,7 +121,8 @@ def normalize_pc(
         segmented_objects = segmented_objects.copy()
 
     # adjust rgb
-    segmented_objects[:, :, 3:6] -= mean_rgb[None, None, :]
+    if mean_rgb is not None:
+        segmented_objects[:, :, 3:6] -= mean_rgb[None, None, :]
 
     # center xyz
     if unit_norm:

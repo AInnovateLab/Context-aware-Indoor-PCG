@@ -52,12 +52,13 @@ class ReferIt3DDataset(Dataset):
     def get_reference_data(self, index: int):
         ref = self.references.iloc[index]
         scan_id: str = ref["scan_id"]
+        stimulus_id: str = ref["stimulus_id"]
         scan = self.scans[ref["scan_id"]]
         target: ThreeDObject = scan.three_d_objects[ref["target_id"]]
         text: str = ref["utterance_generative"]
         is_nr3d: bool = ref["dataset"] == "nr3d"
 
-        return scan, target, text, is_nr3d, scan_id
+        return scan, target, text, is_nr3d, scan_id, stimulus_id
 
     def prepare_context_objects(self, scan: ScannetScan, target: ThreeDObject):
         target_label = target.instance_label
@@ -78,7 +79,7 @@ class ReferIt3DDataset(Dataset):
 
     def __getitem__(self, index: int):
         res = dict()
-        scan, target, text, is_nr3d, scan_id = self.get_reference_data(index)
+        scan, target, text, is_nr3d, scan_id, stimulus_id = self.get_reference_data(index)
         # Make a context of background objects
         context = self.prepare_context_objects(scan, target)
         assert len(context) <= self.max_context_objects
@@ -112,6 +113,7 @@ class ReferIt3DDataset(Dataset):
             )
 
         res["scan_id"] = scan_id
+        res["stimulus_id"] = stimulus_id
         # text
         res["text"] = text
         res["tokens"]: BatchEncoding = self.tokenizer(
@@ -161,6 +163,7 @@ class ReferIt3DDataset(Dataset):
         Data format in batch:
         {
             "scan_id": List[str],
+            "stimulus_id": List[str],
             ---
             "text": List[str],
             "tokens": BatchEncoding,    # see `custom_collate_fn` below for details
@@ -224,7 +227,7 @@ def make_data_loaders(
         is_training = split == "train"
 
         object_transformation = partial(
-            normalize_pc, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
+            normalize_pc, mean_rgb=None, unit_norm=args.unit_sphere_norm
         )
 
         dataset = ReferIt3DDataset(
