@@ -192,10 +192,6 @@ def make_data_loaders(
 ):
     data_loaders: Dict[Literal["train", "test", "test_small"], DataLoader] = dict()
 
-    object_transformation = partial(
-        normalize_pc, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
-    )
-
     def custom_collate_fn(batch):
         """
         Hook for customizing the way datasets are merged.
@@ -225,6 +221,12 @@ def make_data_loaders(
         d_set = referit_data[mask]
         d_set.reset_index(drop=True, inplace=True)
 
+        is_training = split == "train"
+
+        object_transformation = partial(
+            normalize_pc, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
+        )
+
         dataset = ReferIt3DDataset(
             references=d_set,
             scans=scans,
@@ -241,7 +243,7 @@ def make_data_loaders(
             dataset,
             batch_size=args.batch_size,
             num_workers=args.n_workers,
-            shuffle=split == "train",
+            shuffle=is_training,
             pin_memory=True,
             collate_fn=custom_collate_fn,
             drop_last=True,

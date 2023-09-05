@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import json
+import operator
 import os.path as osp
 import pprint
 import shutil
@@ -83,7 +84,8 @@ DATE_FMT = "%Y-%m-%d_%H-%M-%S"
 def main():
     # Parse arguments
     args = parse_arguments()
-
+    project_time = datetime.now()
+    project_time_str = project_time.strftime(DATE_FMT)
     acc_config = ProjectConfiguration(
         project_dir=osp.join(args.project_top_dir, args.project_name),
         logging_dir=osp.join(args.project_top_dir, "tf_logs"),
@@ -96,21 +98,20 @@ def main():
         gradient_accumulation_steps=args.gradient_accumulation_steps,
     )
     # tracker setup
-    accelerator.init_trackers(args.project_name, config=vars(args))
+    accelerator.init_trackers(f"{args.project_name}_{project_time_str}", config=vars(args))
     # save log file only to main process
-    project_start_time = datetime.now()
     init_logger(
         accelerator,
         log_file=osp.join(
             args.project_top_dir,
             args.project_name,
             "logs",
-            project_start_time.strftime(DATE_FMT) + ".log",
+            project_time.strftime(DATE_FMT) + ".log",
         ),
     )
     logger = get_logger(__name__)
     logger.info(
-        f"Project {args.project_name} start at {project_start_time.strftime(DATE_FMT)}",
+        f"Project {args.project_name} start at {project_time.strftime(DATE_FMT)}",
         main_process_only=True,
     )
     if accelerator.is_main_process and accelerator.num_processes > 1:
@@ -210,8 +211,8 @@ def main():
     # construct diffusion
     point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[args.point_e_model])
 
-    param_list.append({"params": point_e.parameters(), "lr": args.init_lr})
-    optimizer = optim.AdamW(param_list)
+    param_list.append({"params": point_e.parameters(), "lr": args.init_lr * 0.2})
+    optimizer = optim.AdamW(param_list, betas=(0.95, 0.999), eps=1e-6, weight_decay=1e-3)
 
     lr_scheduler = get_linear_scheduler(
         optimizer,
@@ -255,8 +256,11 @@ def main():
         s_churn=[3],
     )
 
-    best_test_cd_dist = float("inf")
+    # Best metrics
+    best_test_metric = None
     best_test_epoch = -1
+    best_test_metric_name = "test_point_e_pc_cls_acc"
+    best_test_metric_comp = operator.gt
 
     # Resume training
     if args.resume_path:
@@ -264,14 +268,13 @@ def main():
         logger.info(f"Resuming training from {args.resume_path}.", main_process_only=True)
         start_training_epoch = lr_scheduler.last_epoch + 1
         logger.info(f"Starting from epoch {start_training_epoch}.", main_process_only=True)
-        # TODO - search in the same folder for the best model metrics so far
         # get checkpoint name
         checkpoint_name: str = osp.basename(args.resume_path)
         # format check
         if checkpoint_name.startswith("best_"):
-            splits = checkpoint_name.split("_")
-            if splits[1] == "cd" and splits[3] == "epoch":
-                best_test_cd_dist = float(splits[2])
+            splits = checkpoint_name.split("-")
+            if splits[1] == best_test_metric_name and splits[3] == "epoch":
+                best_test_metric = float(splits[2])
                 best_test_epoch = int(splits[4])
             else:
                 logger.warning(
@@ -313,6 +316,12 @@ def main():
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
                 experiment_id="test_point_e_pc_cd",
+            ),
+            "test_point_e_pc_cls_acc": evaluate.load(
+                LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
+                process_id=accelerator.process_index,
+                num_process=accelerator.num_processes,
+                experiment_id="test_point_e_pc_cls_acc",
             ),
         }
 
@@ -384,7 +393,9 @@ def main():
                     metrics=metrics,
                 )
 
-                test_cd_dist: float = evaluate_meters["test_point_e_pc_cd_dist"]
+                accelerator.log(evaluate_meters, step=epoch)
+
+                test_metric: float = evaluate_meters[best_test_metric_name]
 
                 lr_scheduler.step()
 
@@ -396,16 +407,18 @@ def main():
                             args.project_top_dir,
                             args.project_name,
                             "checkpoints",
-                            project_start_time.strftime(DATE_FMT),
+                            project_time.strftime(DATE_FMT),
                             "last",
                         )
                     )
 
                     # save best states
-                    if best_test_cd_dist > test_cd_dist:
+                    if best_test_metric is None or best_test_metric_comp(
+                        test_metric, best_test_metric
+                    ):
                         logger.info(
                             colored(
-                                f"Training test CD distance: {test_cd_dist: .4f}, improved @epoch {epoch}",
+                                f"Training metric `{best_test_metric_name}`: {test_metric: .4f}, improved @epoch {epoch}",
                                 "green",
                             ),
                             main_process_only=True,
@@ -414,28 +427,28 @@ def main():
                             args.project_top_dir,
                             args.project_name,
                             "checkpoints",
-                            project_start_time.strftime(DATE_FMT),
-                            f"best_cd_{best_test_cd_dist:.4f}_epoch_{best_test_epoch}",
+                            project_time.strftime(DATE_FMT),
+                            f"best-{best_test_metric_name}-{best_test_metric:.4f}-epoch-{best_test_epoch}",
                         )
                         # remove old best
                         if osp.exists(old_best_path):
                             shutil.rmtree(old_best_path)
                         # save new best
-                        best_test_cd_dist = test_cd_dist
+                        best_test_metric = test_metric
                         best_test_epoch = epoch
                         accelerator.save_state(
                             osp.join(
                                 args.project_top_dir,
                                 args.project_name,
                                 "checkpoints",
-                                project_start_time.strftime(DATE_FMT),
-                                f"best_cd_{test_cd_dist:.4f}_epoch_{epoch}",
+                                project_time.strftime(DATE_FMT),
+                                f"best-{best_test_metric_name}-{test_metric:.4f}-epoch-{epoch}",
                             )
                         )
                     else:
                         logger.info(
                             colored(
-                                f"Training test CD distance: {test_cd_dist: .4f}, did not improve @epoch {epoch} "
+                                f"Training metric `{best_test_metric_name}`: {test_metric: .4f}, did not improve @epoch {epoch} "
                                 f"since @epoch {best_test_epoch}",
                                 "red",
                             ),
@@ -474,7 +487,7 @@ def main():
             out_path = osp.join(
                 args.project_top_dir,
                 args.project_name,
-                f"test_metrics_{project_start_time.strftime(DATE_FMT)}.json",
+                f"test_metrics_{project_time.strftime(DATE_FMT)}.json",
             )
             logger.info(f"Saving test metrics to {out_path}", main_process_only=True)
             with open(out_path, "w") as f:

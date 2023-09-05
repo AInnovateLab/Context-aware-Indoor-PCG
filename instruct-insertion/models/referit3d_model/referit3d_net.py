@@ -192,6 +192,7 @@ class ReferIt3DNet_transformer(nn.Module):
             self.inner_dim,
             [self.inner_dim, self.inner_dim, 4],
             dropout_rate=self.dropout_rate,
+            norm_type=None,
         )
 
         self.locate_token = nn.Embedding(1, self.inner_dim)
@@ -204,6 +205,9 @@ class ReferIt3DNet_transformer(nn.Module):
 
     @torch.no_grad()
     def aug_input(self, input_points, box_infos):
+        import warnings
+
+        warnings.warn("`aug_input` is deprecated.", DeprecationWarning)
         input_points = input_points.float()
         box_infos = box_infos.float()
         device = input_points.device
@@ -288,10 +292,16 @@ class ReferIt3DNet_transformer(nn.Module):
         #    points/views augmentation    #
         #                                 #
         ###################################
-        obj_points, boxs = self.aug_input(
-            batch["ctx_pc"],
-            torch.concat((batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1),
-        )
+        # NOTE: stop multi view temporarily
+        # obj_points, boxs = self.aug_input(
+        #     batch["ctx_pc"],
+        #     torch.concat((batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1),
+        # )
+        obj_points = batch["ctx_pc"].float()
+        boxs = torch.cat(
+            (batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1
+        ).float()  # (B, N, 4)
+        boxs = boxs[:, None].repeat(1, self.view_number, 1, 1)  # (B, V, N, 4)
         B, N, P, D = obj_points.shape
         V = self.view_number
 
@@ -300,28 +310,10 @@ class ReferIt3DNet_transformer(nn.Module):
         #    obj encoding    #
         #                    #
         ######################
-        objects_features = self.obj_encoder.forward_cls_feat(
-            {
-                "pos": obj_points[:, :, :, :3].reshape(B * N, P, -1).contiguous(),
-                "x": obj_points[:, :, :, :].reshape(B * N, P, -1).transpose(1, 2).contiguous(),
-            }
-        )  # (B * N, 512, 4)
-        objects_features = self.obj_encoder_agg_proj(objects_features.reshape(B * N, -1)).reshape(
-            B, N, -1
-        )  # (B, N, C)
+        obj_feats, CLASS_LOGITS = self.forward_obj_cls(obj_points)
 
-        obj_feats = objects_features
         box_infos = self.box_feature_mapping(boxs)
         obj_infos = obj_feats[:, None].repeat(1, V, 1, 1) + box_infos
-
-        # <LOSS>: obj_cls
-        if self.label_lang_sup:
-            label_lang_infos = self.language_encoder(**self.class_name_tokens)[0][:, 0]
-            CLASS_LOGITS = torch.matmul(
-                obj_feats.reshape(B * N, -1), label_lang_infos.permute(1, 0)
-            ).reshape(B, N, -1)
-        else:
-            CLASS_LOGITS = self.obj_clf(obj_feats.reshape(B * N, -1)).reshape(B, N, -1)
 
         ###########################
         #                         #
@@ -354,7 +346,7 @@ class ReferIt3DNet_transformer(nn.Module):
         cat_infos = torch.cat(
             [self.locate_token.weight[None].repeat(B * V, 1, 1), cat_infos], dim=1
         )  # (B * V, N+1, C)
-        ...
+
         mem_infos = (
             lang_infos[:, None].repeat(1, V, 1, 1).reshape(B * V, -1, self.inner_dim)
         )  # (B * V, # of tokens, C)
@@ -388,3 +380,34 @@ class ReferIt3DNet_transformer(nn.Module):
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
         return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()
+
+    def forward_obj_cls(self, obj_points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            obj_points (torch.Tensor): (B, N, P, D)
+
+        Returns:
+            (torch.Tensor): (B, N, C)
+            (torch.Tensor): (B, N, # of classes)
+        """
+        B, N, P, D = obj_points.shape
+        obj_feats = self.obj_encoder.forward_cls_feat(
+            {
+                "pos": obj_points[:, :, :, :3].reshape(B * N, P, -1).contiguous(),
+                "x": obj_points[:, :, :, :].reshape(B * N, P, -1).transpose(1, 2).contiguous(),
+            }
+        )  # (B * N, 512, 4)
+        obj_feats = self.obj_encoder_agg_proj(obj_feats.reshape(B * N, -1)).reshape(
+            B, N, -1
+        )  # (B, N, C)
+
+        # <LOSS>: obj_cls
+        if self.label_lang_sup:
+            label_lang_infos = self.language_encoder(**self.class_name_tokens)[0][:, 0]
+            CLASS_LOGITS = torch.matmul(
+                obj_feats.reshape(B * N, -1), label_lang_infos.permute(1, 0)
+            ).reshape(B, N, -1)
+        else:
+            CLASS_LOGITS = self.obj_clf(obj_feats.reshape(B * N, -1)).reshape(B, N, -1)
+
+        return obj_feats, CLASS_LOGITS

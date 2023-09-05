@@ -170,6 +170,7 @@ def evaluate_on_dataset(
 ):
     MVT3DVG.eval()
     point_e.eval()
+    MVT3DVG = accelerator.unwrap_model(MVT3DVG)
 
     rf3d_loss_list = list()
 
@@ -226,8 +227,19 @@ def evaluate_on_dataset(
             res, color=True, grid_size=1, fixed_bounds=None, area=1, name=demo_path
         )
 
-        diff_pcs = torch.cat((pos, aux), dim=1)  # (B, C, P)
-        diff_pcs = diff_pcs.transpose(1, 2)  # (B, P, C)
+        diff_pcs = torch.cat((pos, aux), dim=1)  # (B, D=6, P)
+        diff_pcs = diff_pcs.transpose(1, 2)  # (B, P, D=6)
+        # NOTE - produce the `height append`
+        if args.height_append:
+            tgt_pc_height = batch["tgt_pc"][:, :, -1:]  # (B, P, 1)
+            # avg height
+            tgt_pc_height = tgt_pc_height.mean(dim=1, keepdim=True).repeat(
+                1, diff_pcs.shape[1], 1
+            )  # (B, P, 1)
+            diff_pcs = torch.cat((diff_pcs, tgt_pc_height), dim=-1)  # (B, P, D=7)
+        _, TGT_CLASS_LOGITS = MVT3DVG.forward_obj_cls(
+            diff_pcs[:, None, :, :]
+        )  # (B, 1, # of classes)
 
         ########################
         #                      #
@@ -242,6 +254,7 @@ def evaluate_on_dataset(
             LANG_LOGITS,
             locate_tgt,
             diff_pcs,
+            TGT_CLASS_LOGITS,
             batch["ctx_class"],
             batch["tgt_class"],
             batch["tgt_pc"],
@@ -253,6 +266,7 @@ def evaluate_on_dataset(
                 LANG_LOGITS,
                 locate_tgt,
                 diff_pcs,
+                TGT_CLASS_LOGITS,
                 batch["ctx_class"],
                 batch["tgt_class"],
                 batch["tgt_pc"],
@@ -283,6 +297,11 @@ def evaluate_on_dataset(
             references=batch["tgt_pc"][..., :6].float(),
         )
 
+        metrics["test_point_e_pc_cls_acc"].add_batch(
+            predictions=TGT_CLASS_LOGITS.argmax(-1).flatten(),
+            references=batch["tgt_class"],
+        )
+
     #############################
     #                           #
     #    metrics computation    #
@@ -291,15 +310,18 @@ def evaluate_on_dataset(
     if accelerator.is_main_process:
         loc_estimate = metrics["test_rf3d_loc_estimate"].compute()
         poine_e_pc_cd = metrics["test_point_e_pc_cd"].compute()
+        point_e_pc_cls_acc = metrics["test_point_e_pc_cls_acc"].compute()
         rf3d_cls_acc = metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx)
         rf3d_txt_acc = metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx)
     else:
         _ = metrics["test_rf3d_loc_estimate"].compute()
         _ = metrics["test_point_e_pc_cd"].compute()
+        _ = metrics["test_point_e_pc_cls_acc"].compute()
         _ = metrics["test_rf3d_cls_acc"].compute(ignore_label=pad_idx)
         _ = metrics["test_rf3d_txt_acc"].compute(ignore_label=pad_idx)
         loc_estimate = defaultdict(float)
         poine_e_pc_cd = defaultdict(float)
+        point_e_pc_cls_acc = defaultdict(float)
         rf3d_cls_acc = defaultdict(float)
         rf3d_txt_acc = defaultdict(float)
 
@@ -311,6 +333,7 @@ def evaluate_on_dataset(
         "test_rf3d_txt_acc": rf3d_txt_acc["accuracy"],
         "test_point_e_pc_cd_dist": poine_e_pc_cd["distance"],
         "test_point_e_pc_cd_feat_diff": poine_e_pc_cd["feat_diff"],
+        "test_point_e_pc_cls_acc": point_e_pc_cls_acc["accuracy"],
     }
 
     return ret
