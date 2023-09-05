@@ -1,3 +1,4 @@
+import os
 from collections import defaultdict
 from typing import Any, Dict
 
@@ -10,6 +11,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
 from models.point_e_model.diffusion.sampler import PointCloudSampler
+from models.point_e_model.util.plotting import plot_point_cloud
+from models.point_e_model.util.point_cloud import PointCloud
 from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from transformers import BatchEncoding
 
@@ -205,6 +208,24 @@ def evaluate_on_dataset(
         pos = last_pcs[:, :3, :]
         aux = last_pcs[:, 3:, :]
         aux = aux.clamp_(0, 255).round_().div_(255.0)
+
+        # Visualization of the point cloud
+        aux_input = {}
+        for i, name in enumerate(sampler.aux_channels):
+            v = aux[:, i]
+            aux_input[name] = v
+
+        res = PointCloud(
+            coords=pos.t().cpu().numpy(),
+            channels={k: v[0].cpu().numpy() for k, v in aux_input.items()},
+        )
+        folder_name = "vis_demo"
+        img_name = "demo.png"
+        demo_path = os.path.join(folder_name, img_name)
+        res = plot_point_cloud(
+            res, color=True, grid_size=1, fixed_bounds=None, area=1, name=demo_path
+        )
+
         diff_pcs = torch.cat((pos, aux), dim=1)  # (B, C, P)
         diff_pcs = diff_pcs.transpose(1, 2)  # (B, P, C)
 
