@@ -59,6 +59,7 @@ def start_training_loop_steps(
     MVT3DVG.train()
     point_e.train()
     current_global_steps = start_global_steps
+    gradient_acc_counter = 0
 
     while True:
         for batch in tqdm.tqdm(
@@ -85,7 +86,12 @@ def start_training_loop_steps(
                 accelerator.backward(LOSS)
                 optimizer.step()
 
-                current_global_steps += accelerator.num_processes
+                gradient_acc_counter += 1
+                if gradient_acc_counter % accelerator.gradient_accumulation_steps == 0:
+                    gradient_acc_counter = 0
+                    current_global_steps += 1
+                    # scheduler
+                    scheduler.step()
 
                 # Update the loss and accuracy meters
                 locate_tgt = torch.concat(
@@ -137,9 +143,6 @@ def start_training_loop_steps(
                         predictions=LANG_LOGITS.argmax(-1),
                         references=batch["tgt_class"],
                     )
-
-            # scheduler
-            scheduler.step()
 
             yield current_global_steps
 

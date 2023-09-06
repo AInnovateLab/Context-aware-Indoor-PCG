@@ -56,8 +56,10 @@ class ConcatSquashLinear(Module):
 
 
 def get_linear_scheduler(optimizer, start_step, end_step, start_lr, end_lr):
+    min_ratio = end_lr / start_lr
+
     def lr_func(step):
-        return np.interp(step, [start_step, end_step], [1.0, end_lr / start_lr])
+        return np.interp(step, [0, start_step, end_step], [min_ratio, 1.0, min_ratio])
 
     return LambdaLR(optimizer, lr_lambda=lr_func)
 

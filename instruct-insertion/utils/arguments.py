@@ -112,8 +112,7 @@ def parse_arguments(notebook_options=None):
         "--global-training-steps",
         type=int,
         default=200_000,
-        help="Number of global training steps among all processes. "
-        "For example, if 2 GPUs are used, then each step would be taken as 2 global steps.[default: 200_000]",
+        help="Number of global training steps for single process, taking account for gradient accumulation. [default: 200_000] ",
     )
     parser.add_argument(
         "--training-metric-interval",
@@ -272,9 +271,7 @@ def parse_arguments(notebook_options=None):
             apply_configs(args, configs_dict)
 
     # Print them nicely
-    # logger = get_logger(__name__)
-    # logger.info(pprint.pformat(args))
-    print(pprint.pformat(args))
+    print(pprint.pformat(vars(args)))
 
     if args.save_args:
         out = osp.join(args.project_top_dir, args.project_name, "config.json.txt")

@@ -113,6 +113,7 @@ def main():
         f"Project {args.project_name} start at {project_time_str}.",
         main_process_only=True,
     )
+    logger.info(pprint.pformat(vars(args)), main_process_only=True)
     if accelerator.is_main_process and accelerator.num_processes > 1:
         logger.info(
             f"Distributed training with {accelerator.num_processes} processes.",
@@ -120,7 +121,7 @@ def main():
         )
     if args.gradient_accumulation_steps > 1:
         logger.info(
-            f"Gradient accumulation steps: {args.gradient_accumulation_steps}",
+            f"Gradient accumulation steps: {args.gradient_accumulation_steps}.",
             main_process_only=True,
         )
     device = accelerator.device
@@ -513,6 +514,8 @@ def main():
                 # bar update
                 bar.update(current_global_steps - bar.n)
                 bar.refresh()
+                if current_global_steps >= args.global_training_steps:
+                    break
 
         accelerator.end_training()
         logger.info("Finished training successfully.", main_process_only=True)
