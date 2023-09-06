@@ -65,6 +65,7 @@ from transformers import BatchEncoding, BertTokenizer
 from models.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
 from models.point_e_model.diffusion.sampler import PointCloudSampler
 from models.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
+from models.point_e_model.models.download import load_checkpoint
 from models.point_e_model.util.common import get_linear_scheduler
 
 #######################
@@ -205,6 +206,16 @@ def main():
     point_e_config["n_ctx"] = args.points_per_object
     with accelerator.local_main_process_first():
         point_e = model_from_config(point_e_config, device)
+        # load pretrained model
+        if args.pretrained_point_e:
+            logger.info(
+                f"Loading pretrained {args.point_e_model} model.",
+                main_process_only=True,
+            )
+            ckpt_state_dict = load_checkpoint(
+                args.point_e_model, device=device, cache_dir=point_e_config["cache_dir"]
+            )
+            point_e.load_state_dict(state_dict=ckpt_state_dict, strict=False)
     point_e.to(device)
     logger.info(
         f"Model {args.point_e_model} architecture: {torchinfo.summary(point_e, verbose=0)}",
@@ -385,6 +396,7 @@ def main():
             desc="global_steps",
             initial=misc_states["global_training_steps"],
             total=args.global_training_steps,
+            dynamic_ncols=True,
             disable=not accelerator.is_main_process,
         ) as bar:
             ckpt_save_dir = osp.join(

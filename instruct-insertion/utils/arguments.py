@@ -220,6 +220,12 @@ def parse_arguments(notebook_options=None):
     parser.add_argument(
         "--save-args", type=str2bool, default=True, help="save arguments in a json.txt"
     )
+    parser.add_argument(
+        "--pretrained-point-e",
+        type=str2bool,
+        default=False,
+        help="Whether to download & load pretrained point-e model.",
+    )
 
     ######################################
     #                                    #

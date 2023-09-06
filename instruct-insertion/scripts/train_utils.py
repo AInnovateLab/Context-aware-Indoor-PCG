@@ -63,7 +63,10 @@ def start_training_loop_steps(
 
     while True:
         for batch in tqdm.tqdm(
-            data_loader, desc="local_steps_in_epoch", disable=not accelerator.is_main_process
+            data_loader,
+            desc="local_steps_in_epoch",
+            dynamic_ncols=True,
+            disable=not accelerator.is_main_process,
         ):
             with accelerator.accumulate(MVT3DVG, point_e):
                 move_batch_to_device_(batch, device)
