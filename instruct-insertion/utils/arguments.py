@@ -149,10 +149,10 @@ def parse_arguments(notebook_options=None):
         help="Control pseudo-randomness (net-wise, point-cloud sampling etc.) fostering reproducibility.",
     )
     parser.add_argument(
-        "--init-lr", type=float, default=0.0005, help="init & max learning rate for training."
+        "--init-lr", type=float, default=5e-4, help="init & max learning rate for training."
     )
     parser.add_argument(
-        "--min-lr", type=float, default=0.00005, help="min learning rate for training."
+        "--min-lr", type=float, default=5e-5, help="min learning rate for training."
     )
     parser.add_argument("--lr-sched", type=str, default="linear", help="lr scheduler type.")
     parser.add_argument(

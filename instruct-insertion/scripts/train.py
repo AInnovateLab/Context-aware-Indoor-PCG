@@ -66,8 +66,6 @@ from models.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_
 from models.point_e_model.diffusion.sampler import PointCloudSampler
 from models.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
 from models.point_e_model.util.common import get_linear_scheduler
-from models.point_e_model.util.plotting import plot_point_cloud
-from models.point_e_model.util.point_cloud import PointCloud
 
 #######################
 #                     #
@@ -181,9 +179,9 @@ def main():
         {"params": mvt3dvg.obj_encoder.parameters(), "lr": args.init_lr},
         {"params": mvt3dvg.obj_encoder_agg_proj.parameters(), "lr": args.init_lr},
         #
-        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.2},
+        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
         #
-        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.2},
+        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
         #
         {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
         {"params": mvt3dvg.box_layers.parameters(), "lr": args.init_lr},
@@ -267,7 +265,7 @@ def main():
         "checkpoint_steps": 0,
         "best_test_metric": None,
         "best_test_step": -1,
-        "best_test_metric_name": "test_point_e_pc_cls_acc",
+        "best_test_metric_name": "test_point_e_pc_cls_accuracy",
         "best_test_metric_comp": operator.gt,
     }
 
@@ -302,18 +300,18 @@ def main():
                 num_process=accelerator.num_processes,
                 experiment_id="test_rf3d_loc_estimate",
             ),
-            "test_rf3d_cls_acc": evaluate.load(
+            "test_rf3d_cls": evaluate.load(
                 LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
-                experiment_id="test_rf3d_cls_acc",
+                experiment_id="test_rf3d_cls",
                 ignore_label=pad_idx,
             ),
-            "test_rf3d_txt_acc": evaluate.load(
+            "test_rf3d_txt": evaluate.load(
                 LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
-                experiment_id="test_rf3d_txt_acc",
+                experiment_id="test_rf3d_txt",
                 ignore_label=pad_idx,
             ),
             "test_point_e_pc_cd": evaluate.load(
@@ -323,11 +321,11 @@ def main():
                 num_process=accelerator.num_processes,
                 experiment_id="test_point_e_pc_cd",
             ),
-            "test_point_e_pc_cls_acc": evaluate.load(
+            "test_point_e_pc_cls": evaluate.load(
                 LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
-                experiment_id="test_point_e_pc_cls_acc",
+                experiment_id="test_point_e_pc_cls",
                 # NOTE - no ignored label here
             ),
         }
@@ -366,18 +364,18 @@ def main():
                     num_process=accelerator.num_processes,
                     experiment_id="train_rf3d_loc_estimate",
                 ),
-                "train_rf3d_cls_acc": evaluate.load(
+                "train_rf3d_cls": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
-                    experiment_id="train_rf3d_cls_acc",
+                    experiment_id="train_rf3d_cls",
                     ignore_label=pad_idx,
                 ),
-                "train_rf3d_txt_acc": evaluate.load(
+                "train_rf3d_txt": evaluate.load(
                     LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                     process_id=accelerator.process_index,
                     num_process=accelerator.num_processes,
-                    experiment_id="train_rf3d_txt_acc",
+                    experiment_id="train_rf3d_txt",
                     ignore_label=pad_idx,
                 ),
             }

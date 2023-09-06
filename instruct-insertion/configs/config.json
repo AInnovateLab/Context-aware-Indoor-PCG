@@ -1,5 +1,5 @@
 {
-    "global_training-steps": 300000,
+    "global_training_steps": 300000,
     "training_metric_interval": 2000,
     "evaluation_interval": 5000,
     "checkpoint_interval": 20000,

@@ -85,9 +85,6 @@ def start_training_loop_steps(
                 accelerator.backward(LOSS)
                 optimizer.step()
 
-                # scheduler
-                scheduler.step()
-
                 current_global_steps += accelerator.num_processes
 
                 # Update the loss and accuracy meters
@@ -130,16 +127,19 @@ def start_training_loop_steps(
                 )
 
                 if args.obj_cls_alpha > 0:
-                    metrics_["train_rf3d_cls_acc"].add_batch(
+                    metrics_["train_rf3d_cls"].add_batch(
                         predictions=CLASS_LOGITS.argmax(-1).flatten(),
                         references=batch["ctx_class"].flatten(),
                     )
 
                 if args.lang_cls_alpha > 0:
-                    metrics_["train_rf3d_txt_acc"].add_batch(
+                    metrics_["train_rf3d_txt"].add_batch(
                         predictions=LANG_LOGITS.argmax(-1),
                         references=batch["tgt_class"],
                     )
+
+            # scheduler
+            scheduler.step()
 
             yield current_global_steps
 
@@ -298,13 +298,13 @@ def evaluate_on_dataset(
         )
 
         if args.obj_cls_alpha > 0:
-            metrics_["test_rf3d_cls_acc"].add_batch(
+            metrics_["test_rf3d_cls"].add_batch(
                 predictions=CLASS_LOGITS.argmax(-1).flatten(),
                 references=batch["ctx_class"].flatten(),
             )
 
         if args.lang_cls_alpha > 0:
-            metrics_["test_rf3d_txt_acc"].add_batch(
+            metrics_["test_rf3d_txt"].add_batch(
                 predictions=LANG_LOGITS.argmax(-1),
                 references=batch["tgt_class"],
             )
@@ -314,7 +314,7 @@ def evaluate_on_dataset(
             references=batch["tgt_pc"][..., :6].float(),
         )
 
-        metrics_["test_point_e_pc_cls_acc"].add_batch(
+        metrics_["test_point_e_pc_cls"].add_batch(
             predictions=TGT_CLASS_LOGITS.argmax(-1).flatten(),
             references=batch["tgt_class"],
         )
