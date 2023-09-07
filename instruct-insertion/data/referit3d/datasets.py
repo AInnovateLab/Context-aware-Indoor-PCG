@@ -172,7 +172,7 @@ class ReferIt3DDataset(Dataset):
             ---
             "ctx_key_padding_mask": BoolTensor, (B, # of context),
             "ctx_class": LongTensor, (B, # of context),
-            "ctx_pc": FloatTensor, (B, # of context, P, 6 or 7),
+            "ctx_pc": FloatTensor, (B, # of context, P, 6 or 7), # color range as [0, 1]
             "ctx_box_center": FloatTensor, (B, # of context, 3),
             "ctx_box_max_dist": FloatTensor, (B, # of context),
             ---
