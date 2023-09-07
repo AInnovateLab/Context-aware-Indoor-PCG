@@ -285,6 +285,8 @@ def main():
     if args.resume_path:
         accelerator.load_state(args.resume_path)
         misc_states = torch.load(osp.join(args.resume_path, "misc_states.pkl"))
+        # adjust schduler's epoch state
+        lr_scheduler.last_epoch = misc_states["global_training_steps"]
         logger.info(f"Resuming training from {args.resume_path}.", main_process_only=True)
         logger.info(
             f"Starting from @step {misc_states['global_training_steps']}.", main_process_only=True
