@@ -39,6 +39,7 @@ multimethod==1.7
 multiprocess==0.70.15
 networkx==3.0
 ninja==1.10.2.3
+numba==0.57.1
 numpy==1.24.1
 packaging==23.1
 pandas==2.1.0

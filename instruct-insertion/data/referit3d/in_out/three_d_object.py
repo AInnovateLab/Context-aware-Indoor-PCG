@@ -6,6 +6,7 @@ from shapely.geometry import LineString, Polygon
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import rotate_points_along_z
+from ..utils.fps import FPS
 from ..utils.plotting import plot_pointcloud
 from .cuboid import OrientedCuboid
 
@@ -204,7 +205,7 @@ class ThreeDObject(object):
         return res
 
     @torch.no_grad()
-    def sample(self, n_samples, normalized_pc=False, use_fps=False, rank=0):
+    def sample(self, n_samples, normalized_pc=False, use_fps=False):
         """sub-sample its pointcloud and color"""
         xyz = self.get_pc(normalized=normalized_pc)
         color = self.color
@@ -213,23 +214,22 @@ class ThreeDObject(object):
         assert xyz.shape[0] == len(self.points)
 
         # fps - furthest point sampling
-        # TODO: re-enable this
         if use_fps:
-            idx = np.random.choice(n_points, n_samples, replace=n_points < n_samples)
+            if n_points < n_samples:
+                idx = np.random.choice(n_points, n_samples - n_points, replace=True)
+                idx = np.concatenate((np.arange(n_points), idx))
+                np.random.shuffle(idx)
+            elif n_points == n_samples:
+                idx = np.arange(n_points)
+                np.random.shuffle(idx)
+            else:
+                fps = FPS(xyz, n_samples)
+                idx = fps.fit()
+
             object_samples = {
                 "xyz": xyz[idx].copy(),
                 "color": color[idx].copy(),
             }
-            # 多GPU并行训练不支持.cuda().
-            # color_xyz = np.concatenate([xyz,color],axis=-1)
-            # raw_data = torch.from_numpy(color_xyz[np.newaxis,:,:]).to(rank)
-            # fps_idx = pointnet2_utils.furthest_point_sample(raw_data,n_samples)
-            # sample_data = pointnet2_utils.gather_operation(
-            #     raw_data.transpose(1, 2).contiguous(), fps_idx).transpose(1,2).contiguous().cpu().numpy()[0]
-            # object_samples = {
-            #     'xyz': sample_data[:,0:3].copy(),
-            #     'color': sample_data[:,3:].copy(),
-            # }
         else:
             idx = np.random.choice(n_points, n_samples, replace=n_points < n_samples)
             object_samples = {

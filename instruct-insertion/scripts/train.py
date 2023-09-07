@@ -114,7 +114,7 @@ def main():
         f"Project {args.project_name} start at {project_time_str}.",
         main_process_only=True,
     )
-    logger.info(pprint.pformat(vars(args)), main_process_only=True)
+    logger.info(f"Args: {vars(args)}", main_process_only=True)
     if accelerator.is_main_process and accelerator.num_processes > 1:
         logger.info(
             f"Distributed training with {accelerator.num_processes} processes.",
@@ -230,8 +230,8 @@ def main():
 
     lr_scheduler = get_linear_scheduler(
         optimizer,
-        start_step=1_000,
-        end_step=args.global_training_steps,
+        start_step=1_000 * accelerator.num_processes,
+        end_step=args.global_training_steps * accelerator.num_processes,
         start_lr=args.init_lr,
         end_lr=args.min_lr,
     )

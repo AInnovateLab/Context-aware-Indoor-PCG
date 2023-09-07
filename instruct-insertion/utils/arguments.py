@@ -101,6 +101,12 @@ def parse_arguments(notebook_options=None):
         default=True,
         help="If True, append height to the floor as the 7th channel of point-clouds.",
     )
+    parser.add_argument(
+        "--fps",
+        type=str2bool,
+        default=True,
+        help="If True, enable furthest points sampling method.",
+    )
 
     ############################
     #                          #

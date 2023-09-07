@@ -49,8 +49,8 @@ def dataset_to_dataloader(
 ######################################
 
 
-def sample_scan_object(object: "ThreeDObject", n_points: int, use_fps=False, rank=0) -> np.ndarray:
-    sample = object.sample(n_samples=n_points, use_fps=use_fps, rank=rank)
+def sample_scan_object(object: "ThreeDObject", n_points: int, use_fps=False) -> np.ndarray:
+    sample = object.sample(n_samples=n_points, use_fps=use_fps)
     return np.concatenate([sample["xyz"], sample["color"]], axis=1)
 
 

@@ -34,6 +34,7 @@ class ReferIt3DDataset(Dataset):
         tokenizer: PreTrainedTokenizer,
         object_transformation=None,
         height_append: bool = True,
+        fps: bool = False,
     ):
         self.references = references
         self.scans = scans
@@ -43,6 +44,7 @@ class ReferIt3DDataset(Dataset):
         self.class_to_idx = class_to_idx
         self.tokenizer = tokenizer
         self.height_append = height_append
+        self.fps = fps
         self.object_transformation = object_transformation
         assert check_segmented_object_order(scans), "Objects are not ordered by object id"
 
@@ -87,7 +89,7 @@ class ReferIt3DDataset(Dataset):
 
         # sample point/color for them
         samples_w_tgt = np.array(
-            [sample_scan_object(o, self.points_per_object) for o in context_w_tgt]
+            [sample_scan_object(o, self.points_per_object, use_fps=self.fps) for o in context_w_tgt]
         )  # (# of objects, # of points, 6)
         # 7 when we append height to the point cloud
         if self.height_append:
