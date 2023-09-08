@@ -215,6 +215,12 @@ def parse_arguments(notebook_options=None):
         default=0.5,
         help="if > 0 a loss for guessing for each segmented" " object its class type is added.",
     )
+    parser.add_argument(
+        "offset_prediction",
+        type=str2bool,
+        default=False,
+        help="if True, predict the offset of the target object of the avg coords of all objects instead of directly predict the coords.",
+    )
 
     parser.add_argument("--point-e-model", type=str, default="base40M-textvec")
 

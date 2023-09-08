@@ -152,6 +152,15 @@ class ReferIt3DNet_transformer(nn.Module):
         self.language_encoder.embeddings.requires_grad_(False)
         self.language_encoder.encoder.layer[0].requires_grad_(False)
 
+        self.offset = args.offset_prediction
+        if self.offset:
+            self.offset_layer = MLP(
+                self.inner_dim,
+                [self.inner_dim, self.inner_dim, 3],
+                dropout_rate=self.dropout_rate,
+                norm_type=None,
+            )
+
         self.refer_encoder = nn.TransformerDecoder(
             torch.nn.TransformerDecoderLayer(
                 d_model=self.inner_dim,
@@ -371,7 +380,16 @@ class ReferIt3DNet_transformer(nn.Module):
         ######################
         # return the center point of box and box max distance
         # ctx_embeds: (B, C)
-        LOCATE_PREDS = self.box_layers(ctx_embeds)
+
+        if self.offset:
+            # predict the offset
+            avg_coords = batch["ctx_box_center"].mean(dim=0)  # (1, 3)
+            offset_coords = self.offset_layer(ctx_embeds)  # (B, 3)
+            LOCATE_PREDS = avg_coords + offset_coords
+        else:
+            # directly predict the center point of box
+            LOCATE_PREDS = self.box_layers(ctx_embeds)
+
         LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
