@@ -381,16 +381,21 @@ class ReferIt3DNet_transformer(nn.Module):
         # return the center point of box and box max distance
         # ctx_embeds: (B, C)
 
-        if self.offset:
-            # predict the offset
-            avg_coords = batch["ctx_box_center"].mean(dim=0)  # (1, 3)
-            offset_coords = self.offset_layer(ctx_embeds)  # (B, 3)
-            LOCATE_PREDS = avg_coords + offset_coords
-        else:
-            # directly predict the center point of box
-            LOCATE_PREDS = self.box_layers(ctx_embeds)
+        # directly predict the center point of box
+        LOCATE_PREDS = self.box_layers(ctx_embeds)
 
         LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
+
+        if self.offset:
+            # predict the offset
+            # avg_coords = batch["ctx_box_center"].view(batch["ctx_box_center"].shape[0] * batch["ctx_box_center"].shape[0]).mean(dim=0)  # (1, 3)
+            coords = batch["ctx_box_center"]  # (B, N, 3)
+            offset_coords = self.offset_layer(out_feats[:, 0, 1:, :])  # (B, N, 3)
+            pos_preds = coords + offset_coords
+            POS_PRED_LOSS = self.locate_loss(
+                pos_preds, batch["tgt_box_center"].repeat(N, 1, 1).permute(1, 0, 2)
+            )
+            LOSS += POS_PRED_LOSS
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
         return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()

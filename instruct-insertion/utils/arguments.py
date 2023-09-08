@@ -216,9 +216,10 @@ def parse_arguments(notebook_options=None):
         help="if > 0 a loss for guessing for each segmented" " object its class type is added.",
     )
     parser.add_argument(
-        "offset_prediction",
+        "--offset-prediction",
         type=str2bool,
         default=False,
+        action=argparse.BooleanOptionalAction,
         help="if True, predict the offset of the target object of the avg coords of all objects instead of directly predict the coords.",
     )
 

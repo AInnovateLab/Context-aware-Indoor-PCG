@@ -12,4 +12,4 @@ accelerate launch train.py \
     --project-top-dir "../../tmp_lyy_saves" \
     --project-name "offset" \
     --config-file "../configs/config.json" \
-    --offset_prediction
+    --offset-prediction
