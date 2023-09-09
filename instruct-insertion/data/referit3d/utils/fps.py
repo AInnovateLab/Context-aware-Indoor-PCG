@@ -23,12 +23,12 @@ class FPS:
         # Random pick a start
         start_idx = np.random.randint(low=0, high=n_pts)
         self.n_selected_pts = 1
-        self.dist_pts_to_selected_min = np.zeros((n_pts,), dtype=np.float32)
+        self.dist_pts_to_selected_min = np.empty((n_pts,), dtype=np.float32)
         self.res_selected_idx = -1
 
-        self.selected_pts_expanded = np.zeros((n_samples, 1, dim), dtype=np.float32)
+        self.selected_pts_expanded = np.empty((n_samples, 1, dim), dtype=np.float32)
         self.selected_pts_expanded[0] = self.pcd_xyz[start_idx]
-        self.selected_pts_idx = np.zeros((n_samples,), dtype=np.int32)
+        self.selected_pts_idx = np.empty((n_samples,), dtype=np.int32)
         self.selected_pts_idx[0] = start_idx
 
     def step(self):

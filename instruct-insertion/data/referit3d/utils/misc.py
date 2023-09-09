@@ -17,31 +17,6 @@ if TYPE_CHECKING:
 ############################
 
 
-def dataset_to_dataloader(
-    dataset, split, batch_size, n_workers, pin_memory=True, collate_fn=None
-) -> DataLoader:
-    """
-    :param dataset:
-    :param split:
-    :param batch_size:
-    :param n_workers:
-    :param pin_memory:
-    :param seed:
-    :return:
-    """
-    shuffle = split == "train"
-
-    data_loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        num_workers=n_workers,
-        shuffle=shuffle,
-        pin_memory=pin_memory,
-        collate_fn=collate_fn,
-    )
-    return data_loader
-
-
 ######################################
 #                                    #
 #    data (pre)precessing related    #

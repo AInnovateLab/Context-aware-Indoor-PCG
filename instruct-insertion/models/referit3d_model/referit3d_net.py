@@ -152,7 +152,7 @@ class ReferIt3DNet_transformer(nn.Module):
         self.language_encoder.embeddings.requires_grad_(False)
         self.language_encoder.encoder.layer[0].requires_grad_(False)
 
-        self.offset = args.offset_prediction
+        self.offset: bool = args.offset_prediction
         if self.offset:
             self.offset_layer = MLP(
                 self.inner_dim,
@@ -285,7 +285,7 @@ class ReferIt3DNet_transformer(nn.Module):
         locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
 
         # radius loss
-        # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_center'] (B,)
+        # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_max_dist'] (B,)
         dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
 
         total_loss = (
@@ -382,20 +382,21 @@ class ReferIt3DNet_transformer(nn.Module):
         # ctx_embeds: (B, C)
 
         # directly predict the center point of box
-        LOCATE_PREDS = self.box_layers(ctx_embeds)
+        LOCATE_PREDS = self.box_layers(ctx_embeds)  # (B, 4)
 
         LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
 
         if self.offset:
             # predict the offset
-            # avg_coords = batch["ctx_box_center"].view(batch["ctx_box_center"].shape[0] * batch["ctx_box_center"].shape[0]).mean(dim=0)  # (1, 3)
             coords = batch["ctx_box_center"]  # (B, N, 3)
             offset_coords = self.offset_layer(out_feats[:, 0, 1:, :])  # (B, N, 3)
             pos_preds = coords + offset_coords
             POS_PRED_LOSS = self.locate_loss(
-                pos_preds, batch["tgt_box_center"].repeat(N, 1, 1).permute(1, 0, 2)
+                pos_preds, batch["tgt_box_center"][:, None].repeat(1, N, 1)
             )
             LOSS += POS_PRED_LOSS
+            # adjust the box center
+            LOCATE_PREDS[:, :3] = 0.5 * (LOCATE_PREDS[:, :3] + pos_preds.mean(dim=1))
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
         return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()

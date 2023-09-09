@@ -43,7 +43,6 @@ class ThreeDObject(object):
         self._use_true_instance = True
 
         self.pc = None  # The point cloud (xyz)
-        self.normalized_pc = None  # The normalized point cloud (xyz) in unit sphere
 
     @property
     def instance_label(self):
@@ -99,28 +98,13 @@ class ThreeDObject(object):
             self.set_axis_align_bbox()
         return self.axis_aligned_bbox
 
-    def normalize_pc(self):
-        """
-        Normalize the object's point cloud to a unit sphere centered at the origin point
-        """
-        assert self.pc is not None
-        point_set = self.pc - np.expand_dims(np.mean(self.pc, axis=0), 0)  # center
-        dist = np.max(np.sqrt(np.sum(point_set**2, axis=1)), 0)
-        self.normalized_pc = point_set / dist  # scale
-
-    def set_pc(self, normalize=False):
+    def set_pc(self):
         if self.pc is None:
             self.pc = self.scan.pc[self.points]
 
-        if normalize and self.normalized_pc is None:
-            self.normalize_pc()
-
-    def get_pc(self, normalized=False):
+    def get_pc(self):
         # Set the pc if not previously initialized
-        self.set_pc(normalized)
-
-        if normalized:
-            return self.normalized_pc
+        self.set_pc()
 
         return self.pc
 
@@ -205,9 +189,9 @@ class ThreeDObject(object):
         return res
 
     @torch.no_grad()
-    def sample(self, n_samples, normalized_pc=False, use_fps=False):
+    def sample(self, n_samples, use_fps=False):
         """sub-sample its pointcloud and color"""
-        xyz = self.get_pc(normalized=normalized_pc)
+        xyz = self.get_pc()
         color = self.color
 
         n_points = len(self.points)

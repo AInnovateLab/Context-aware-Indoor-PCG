@@ -4,6 +4,7 @@ from typing import Dict, Literal, Optional
 import numpy as np
 import pandas as pd
 from accelerate import Accelerator, DistributedType
+from scipy.spatial.transform import Rotation as R
 from torch.utils.data import DataLoader, Dataset, default_collate
 from transformers import BatchEncoding, PreTrainedTokenizer
 
@@ -13,8 +14,6 @@ from .in_out.scannet_scan import ScannetScan, ThreeDObject
 # maybe make SegmentedScanDataset with only static functions and then inherit.
 from .utils import (
     check_segmented_object_order,
-    dataset_to_dataloader,
-    decode_stimulus_string,
     infer_floor_z_coord,
     instance_labels_of_context,
     normalize_pc,
@@ -35,6 +34,7 @@ class ReferIt3DDataset(Dataset):
         object_transformation=None,
         height_append: bool = True,
         fps: bool = False,
+        random_rotation: bool = False,
     ):
         self.references = references
         self.scans = scans
@@ -45,6 +45,7 @@ class ReferIt3DDataset(Dataset):
         self.tokenizer = tokenizer
         self.height_append = height_append
         self.fps = fps
+        self.random_rotation = random_rotation
         self.object_transformation = object_transformation
         assert check_segmented_object_order(scans), "Objects are not ordered by object id"
 
@@ -103,10 +104,21 @@ class ReferIt3DDataset(Dataset):
         tgt_box_center_w_tgt = np.array(
             [o.get_bbox().center() for o in context_w_tgt]
         )  # (# of objects, 3)
+
+        # random ratation
+        if self.random_rotation:
+            rot_mat = (
+                R.from_euler("z", np.random.uniform(0, 360), degrees=True).as_matrix().transpose()
+            )
+            samples_w_tgt[:, :, :3] = samples_w_tgt[:, :, :3] @ rot_mat
+            tgt_box_center_w_tgt = tgt_box_center_w_tgt @ rot_mat
+        else:
+            rot_mat = np.eye(3)
+
         # the max dist from the center point to the farthest point in the bbox
-        tgt_box_max_dist_w_tgt = np.zeros((len(context_w_tgt),))  # (# of objects,)
+        tgt_box_max_dist_w_tgt = np.empty((len(context_w_tgt),))  # (# of objects,)
         for i, o in enumerate(context_w_tgt):
-            tmp = o.get_pc() - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
+            tmp = o.get_pc() @ rot_mat - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
             tgt_box_max_dist_w_tgt[i] = np.linalg.norm(tmp, axis=1, ord=2).max()
 
         if self.object_transformation is not None:
@@ -242,6 +254,8 @@ def make_data_loaders(
             tokenizer=tokenizer,
             object_transformation=object_transformation,
             height_append=args.height_append,
+            fps=args.fps,
+            random_rotation=not is_training and args.random_rotation,
         )
 
         data_loaders[split] = DataLoader(

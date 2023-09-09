@@ -104,8 +104,14 @@ def parse_arguments(notebook_options=None):
     parser.add_argument(
         "--fps",
         type=str2bool,
-        default=True,
+        default=False,
         help="If True, enable furthest points sampling method.",
+    )
+    parser.add_argument(
+        "--random-rotation",
+        type=str2bool,
+        default=False,
+        help="If True, enable random rotation augmentation.",
     )
 
     ############################
@@ -219,7 +225,6 @@ def parse_arguments(notebook_options=None):
         "--offset-prediction",
         type=str2bool,
         default=False,
-        action=argparse.BooleanOptionalAction,
         help="if True, predict the offset of the target object of the avg coords of all objects instead of directly predict the coords.",
     )
 
