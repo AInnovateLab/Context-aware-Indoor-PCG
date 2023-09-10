@@ -28,7 +28,12 @@ FILETYPES = [
     # "_2d-label.zip",
     # "_2d-label-filt.zip",
 ]
-FILETYPES_TEST = [".sens", ".txt", "_vh_clean.ply", "_vh_clean_2.ply"]
+FILETYPES_TEST = [
+    # ".sens",
+    ".txt",
+    # "_vh_clean.ply",
+    "_vh_clean_2.ply",
+]
 PREPROCESSED_FRAMES_FILE = ["scannet_frames_25k.zip", "5.6GB"]
 TEST_FRAMES_FILE = ["scannet_frames_test.zip", "610MB"]
 LABEL_MAP_FILES = ["scannetv2-labels.combined.tsv", "scannet-labels.combined.tsv"]

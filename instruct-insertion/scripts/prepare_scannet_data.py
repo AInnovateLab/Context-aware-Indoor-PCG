@@ -6,7 +6,8 @@ import sys
 import time
 from typing import Dict, List
 
-sys.path.append(f"{osp.dirname(__file__)}/..")
+CUR_DIR = osp.dirname(__file__)
+sys.path.append(f"{CUR_DIR}/..")
 
 from data.referit3d.in_out.scannet_scan import ScannetDataset, ScannetScan
 from data.utils import create_dir, immediate_subdirectories, pickle_data, str2bool
@@ -80,12 +81,14 @@ if __name__ == "__main__":
 
     # Prepare ScannetDataset
     idx_to_semantic_class_file = (
-        "../data/referit3d/meta/mappings/scannet_idx_to_semantic_class.json"
+        f"{CUR_DIR}/../data/referit3d/meta/mappings/scannet_idx_to_semantic_class.json"
     )
     instance_class_to_semantic_class_file = (
-        "../data/referit3d/meta/mappings/scannet_instance_class_to_semantic_class.json"
+        f"{CUR_DIR}/../data/referit3d/meta/mappings/scannet_instance_class_to_semantic_class.json"
     )
-    axis_alignment_info_file = "../data/referit3d/meta/scannet/scans_axis_alignment_matrices.json"
+    axis_alignment_info_file = (
+        f"{CUR_DIR}/../data/referit3d/meta/scannet/scans_axis_alignment_matrices.json"
+    )
 
     scannet = ScannetDataset(
         args.top_scan_dir,

@@ -31,7 +31,7 @@ Create environment:
 ```shell
 conda create -n instruct-insertion python=3.9
 conda activate instruct-insertion
-conda install -c conda-forge cudatoolkit-dev
+conda install -c conda-forge cudatoolkit-dev=11.7
 pip install -r requirements.txt
 ```
 

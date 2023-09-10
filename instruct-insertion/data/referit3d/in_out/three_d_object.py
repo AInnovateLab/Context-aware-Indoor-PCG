@@ -207,6 +207,12 @@ class ThreeDObject(object):
                 idx = np.arange(n_points)
                 np.random.shuffle(idx)
             else:
+                # only use fps on a subset of the points, 3x the number of samples
+                sub_samples_idx = np.random.choice(
+                    n_points, n_samples * 2, replace=n_points < 2 * n_samples
+                )
+                xyz = xyz[sub_samples_idx].astype(np.float32)
+                color = color[sub_samples_idx].astype(np.float32)
                 fps = FPS(xyz, n_samples)
                 idx = fps.fit()
 

@@ -263,7 +263,8 @@ def make_data_loaders(
             batch_size=args.batch_size,
             num_workers=args.n_workers,
             shuffle=is_training,
-            pin_memory=True,
+            pin_memory=False,
+            persistent_workers=True,
             collate_fn=custom_collate_fn,
             drop_last=True,
         )

@@ -227,6 +227,12 @@ def parse_arguments(notebook_options=None):
         default=False,
         help="if True, predict the offset of the target object of the avg coords of all objects instead of directly predict the coords.",
     )
+    parser.add_argument(
+        "--rel-pred-alpha",
+        type=float,
+        default=0.5,
+        help="relative prediction weight for loss and coordinated prediction. If set to 1.0, no direct prediction is performed.",
+    )
 
     parser.add_argument("--point-e-model", type=str, default="base40M-textvec")
 

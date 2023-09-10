@@ -6,7 +6,7 @@ async-timeout==4.0.3
 attrs==23.1.0
 certifi==2022.12.7
 charset-normalizer==2.1.1
-clip @ git+https://github.com/openai/CLIP.git@a1d071733d7111c9c014f024669f959182114e33
+clip @ git+https://github.com/openai/CLIP.git
 cmake==3.25.0
 coloredlogs==15.0.1
 contourpy==1.1.0

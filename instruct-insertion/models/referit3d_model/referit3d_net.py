@@ -115,6 +115,7 @@ class ReferIt3DNet_transformer(nn.Module):
         self.dropout_rate = args.dropout_rate
         self.lang_cls_alpha = args.lang_cls_alpha
         self.obj_cls_alpha = args.obj_cls_alpha
+        self.rel_pred_alpha = args.rel_pred_alpha
 
         self.class_name_tokens = class_name_tokens
 
@@ -282,15 +283,20 @@ class ReferIt3DNet_transformer(nn.Module):
 
         # center loss
         # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
-        locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
+        if self.offset:
+            locate_loss = (1.0 - self.rel_pred_alpha) * self.locate_loss(
+                LOCATE_PREDS[:, :3], batch["tgt_box_center"]
+            )
+        else:
+            locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
 
         # radius loss
         # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_max_dist'] (B,)
         dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
 
         total_loss = (
-            locate_loss
-            + dist_loss
+            # locate_loss
+            +dist_loss
             + self.obj_cls_alpha * obj_clf_loss
             + self.lang_cls_alpha * lang_clf_loss
         )
@@ -347,10 +353,10 @@ class ReferIt3DNet_transformer(nn.Module):
         lang_mask = lang_mask[:, None].repeat(1, V, 1).reshape(B * V, -1)  # (B * V, # of tokens)
         obj_mask: torch.BoolTensor = batch["ctx_key_padding_mask"]  # (B, N)
         # append first token mask
-        obj_mask = torch.cat(
+        obj_mask_w_tgt = torch.cat(
             [torch.zeros((B, 1), dtype=torch.bool, device=obj_mask.device), obj_mask], dim=1
         )  # (B, N+1)
-        obj_mask = obj_mask[:, None].repeat(1, V, 1).reshape(B * V, -1)  # (B * V, N+1)
+        obj_mask_w_tgt = obj_mask_w_tgt[:, None].repeat(1, V, 1).reshape(B * V, -1)  # (B * V, N+1)
 
         # feature prepare
         cat_infos = obj_infos.reshape(B * V, -1, self.inner_dim)
@@ -364,14 +370,14 @@ class ReferIt3DNet_transformer(nn.Module):
         out_feats = self.refer_encoder(
             tgt=cat_infos,
             memory=mem_infos,
-            tgt_key_padding_mask=obj_mask,
+            tgt_key_padding_mask=obj_mask_w_tgt,
             memory_key_padding_mask=lang_mask,
         ).reshape(
             B, V, -1, self.inner_dim
         )  # (B, V, N+1, C)
 
-        ctx_embeds = out_feats[:, :, 0, :]  # (B, V, C)
-        ctx_embeds = ctx_embeds.mean(dim=1)  # (B, C)
+        out_feats = out_feats.mean(dim=1)  # (B, N+1, C)
+        ctx_embeds = out_feats[:, 0, :]  # (B, V, C)
 
         ######################
         #                    #
@@ -388,15 +394,22 @@ class ReferIt3DNet_transformer(nn.Module):
 
         if self.offset:
             # predict the offset
+            obj_mask_coef = (~obj_mask).float()  # (B, N)
             coords = batch["ctx_box_center"]  # (B, N, 3)
-            offset_coords = self.offset_layer(out_feats[:, 0, 1:, :])  # (B, N, 3)
+            offset_coords = self.offset_layer(out_feats[:, 1:, :])  # (B, N, 3)
             pos_preds = coords + offset_coords
-            POS_PRED_LOSS = self.locate_loss(
-                pos_preds, batch["tgt_box_center"][:, None].repeat(1, N, 1)
-            )
-            LOSS += POS_PRED_LOSS
+            POS_PRED_LOSS = F.mse_loss(
+                pos_preds, batch["tgt_box_center"][:, None].repeat(1, N, 1), reduction="none"
+            )  # (B, N, 3)
+            POS_PRED_LOSS = POS_PRED_LOSS.mean(dim=-1) * obj_mask_coef  # (B, N)
+            POS_PRED_LOSS = POS_PRED_LOSS.sum(dim=-1) / obj_mask_coef.sum(dim=-1)  # (B,)
+            LOSS += POS_PRED_LOSS.mean()
             # adjust the box center
-            LOCATE_PREDS[:, :3] = 0.5 * (LOCATE_PREDS[:, :3] + pos_preds.mean(dim=1))
+            mean_pos_preds = pos_preds * obj_mask_coef[:, :, None]  # (B, N, 3)
+            mean_pos_preds = mean_pos_preds.sum(dim=1) / obj_mask_coef.sum(dim=1)[:, None]  # (B, 3)
+            LOCATE_PREDS[:, :3] = (1.0 - self.rel_pred_alpha) * LOCATE_PREDS[:, :3] + (
+                self.rel_pred_alpha
+            ) * mean_pos_preds
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
         return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()
