@@ -1,3 +1,9 @@
+"""
+Python implementation of farthest point sampling (FPS) algorithm.
+Optimized by `numba`.
+Consider using the rust implementation if you have rust installed.
+Check `README.md` for more details.
+"""
 import numpy as np
 from numba import float32, int32
 from numba.experimental import jitclass

@@ -9,6 +9,16 @@ from ..utils import rotate_points_along_z
 from ..utils.plotting import plot_pointcloud
 from .cuboid import OrientedCuboid
 
+try:
+    # rust implementation
+    from fps_utils import fps_sampling
+
+    ENABLE_RUST_FPS_FLAG = True
+except:
+    from ..utils.fps import FPS
+
+    ENABLE_RUST_FPS_FLAG = False
+
 if TYPE_CHECKING:
     from .scannet_scan import ScannetScan
 
@@ -212,14 +222,9 @@ class ThreeDObject(object):
                 )
                 xyz = xyz[sub_samples_idx].astype(np.float32)
                 color = color[sub_samples_idx].astype(np.float32)
-                try:
-                    # rust implementation
-                    from fps_utils import fps_sampling
-
+                if ENABLE_RUST_FPS_FLAG:
                     idx = fps_sampling(xyz, n_samples)
-                except:
-                    from ..utils.fps import FPS
-
+                else:
                     fps = FPS(xyz, n_samples)
                     idx = fps.fit()
 
