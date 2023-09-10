@@ -1,7 +1,7 @@
 {
-    "global_training_steps": 300000,
-    "training_metric_interval": 2000,
-    "evaluation_interval": 5000,
+    "global_training_steps": 160000,
+    "training_metric_interval": 1000,
+    "evaluation_interval": 8000,
     "checkpoint_interval": 20000,
     "batch_size": 4,
     "num_workers": 8,

@@ -24,8 +24,12 @@ if TYPE_CHECKING:
 ######################################
 
 
-def sample_scan_object(object: "ThreeDObject", n_points: int, use_fps=False) -> np.ndarray:
-    sample = object.sample(n_samples=n_points, use_fps=use_fps)
+def sample_scan_object(
+    object: "ThreeDObject", n_points: int, use_fps=False, max_fps_candidates: Optional[int] = None
+) -> np.ndarray:
+    sample = object.sample(
+        n_samples=n_points, use_fps=use_fps, max_fps_candidates=max_fps_candidates
+    )
     return np.concatenate([sample["xyz"], sample["color"]], axis=1)
 
 

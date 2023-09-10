@@ -295,8 +295,8 @@ class ReferIt3DNet_transformer(nn.Module):
         dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
 
         total_loss = (
-            # locate_loss
-            +dist_loss
+            locate_loss
+            + dist_loss
             + self.obj_cls_alpha * obj_clf_loss
             + self.lang_cls_alpha * lang_clf_loss
         )
@@ -403,7 +403,7 @@ class ReferIt3DNet_transformer(nn.Module):
             )  # (B, N, 3)
             POS_PRED_LOSS = POS_PRED_LOSS.mean(dim=-1) * obj_mask_coef  # (B, N)
             POS_PRED_LOSS = POS_PRED_LOSS.sum(dim=-1) / obj_mask_coef.sum(dim=-1)  # (B,)
-            LOSS += POS_PRED_LOSS.mean()
+            LOSS += self.rel_pred_alpha * POS_PRED_LOSS.mean()
             # adjust the box center
             mean_pos_preds = pos_preds * obj_mask_coef[:, :, None]  # (B, N, 3)
             mean_pos_preds = mean_pos_preds.sum(dim=1) / obj_mask_coef.sum(dim=1)[:, None]  # (B, 3)

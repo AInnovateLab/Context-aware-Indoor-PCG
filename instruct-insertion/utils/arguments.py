@@ -108,6 +108,12 @@ def parse_arguments(notebook_options=None):
         help="If True, enable furthest points sampling method.",
     )
     parser.add_argument(
+        "--max-fps-candidates",
+        type=int,
+        default=4096,
+        help="Maximum number of candidates to use for fps sampling.",
+    )
+    parser.add_argument(
         "--random-rotation",
         type=str2bool,
         default=False,

@@ -34,6 +34,7 @@ class ReferIt3DDataset(Dataset):
         object_transformation=None,
         height_append: bool = True,
         fps: bool = False,
+        max_fps_candidates: Optional[int] = None,
         random_rotation: bool = False,
     ):
         self.references = references
@@ -45,6 +46,7 @@ class ReferIt3DDataset(Dataset):
         self.tokenizer = tokenizer
         self.height_append = height_append
         self.fps = fps
+        self.max_fps_candidates = max_fps_candidates
         self.random_rotation = random_rotation
         self.object_transformation = object_transformation
         assert check_segmented_object_order(scans), "Objects are not ordered by object id"
@@ -90,7 +92,15 @@ class ReferIt3DDataset(Dataset):
 
         # sample point/color for them
         samples_w_tgt = np.array(
-            [sample_scan_object(o, self.points_per_object, use_fps=self.fps) for o in context_w_tgt]
+            [
+                sample_scan_object(
+                    o,
+                    self.points_per_object,
+                    use_fps=self.fps,
+                    max_fps_candidates=self.max_fps_candidates,
+                )
+                for o in context_w_tgt
+            ]
         )  # (# of objects, # of points, 6)
         # 7 when we append height to the point cloud
         if self.height_append:
@@ -255,7 +265,8 @@ def make_data_loaders(
             object_transformation=object_transformation,
             height_append=args.height_append,
             fps=args.fps,
-            random_rotation=not is_training and args.random_rotation,
+            max_fps_candidates=args.max_fps_candidates,
+            random_rotation=is_training and args.random_rotation,
         )
 
         data_loaders[split] = DataLoader(

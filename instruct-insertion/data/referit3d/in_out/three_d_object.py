@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 import numpy as np
 import torch
@@ -198,7 +198,7 @@ class ThreeDObject(object):
         return res
 
     @torch.no_grad()
-    def sample(self, n_samples, use_fps=False):
+    def sample(self, n_samples, use_fps=False, max_fps_candidates: Optional[int] = None):
         """sub-sample its pointcloud and color"""
         xyz = self.get_pc()
         color = self.color
@@ -216,10 +216,17 @@ class ThreeDObject(object):
                 idx = np.arange(n_points)
                 np.random.shuffle(idx)
             else:
-                # only use fps on a subset of the points, 3x the number of samples
-                sub_samples_idx = np.random.choice(
-                    n_points, n_samples * 2, replace=n_points < 2 * n_samples
-                )
+                # only use fps on a subset of the points, Nx the number of samples
+                if max_fps_candidates is None:
+                    max_fps_candidates = 4 * n_samples
+                assert max_fps_candidates >= n_samples, "max_fps_candidates must be >= n_samples"
+
+                if max_fps_candidates >= n_points:
+                    sub_samples_idx = np.arange(n_points)
+                else:
+                    sub_samples_idx = np.random.choice(
+                        n_points, max_fps_candidates, replace=n_points < max_fps_candidates
+                    )
                 xyz = xyz[sub_samples_idx].astype(np.float32)
                 color = color[sub_samples_idx].astype(np.float32)
                 if ENABLE_RUST_FPS_FLAG:
