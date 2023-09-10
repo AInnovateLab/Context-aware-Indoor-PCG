@@ -6,7 +6,6 @@ from shapely.geometry import LineString, Polygon
 from sklearn.neighbors import NearestNeighbors
 
 from ..utils import rotate_points_along_z
-from ..utils.fps import FPS
 from ..utils.plotting import plot_pointcloud
 from .cuboid import OrientedCuboid
 
@@ -213,8 +212,16 @@ class ThreeDObject(object):
                 )
                 xyz = xyz[sub_samples_idx].astype(np.float32)
                 color = color[sub_samples_idx].astype(np.float32)
-                fps = FPS(xyz, n_samples)
-                idx = fps.fit()
+                try:
+                    # rust implementation
+                    from fps_utils import fps_sampling
+
+                    idx = fps_sampling(xyz, n_samples)
+                except:
+                    from ..utils.fps import FPS
+
+                    fps = FPS(xyz, n_samples)
+                    idx = fps.fit()
 
             object_samples = {
                 "xyz": xyz[idx].copy(),
