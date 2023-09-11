@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, List, Optional
 
+import fpsample
 import numpy as np
 import torch
 from shapely.geometry import LineString, Polygon
@@ -8,16 +9,6 @@ from sklearn.neighbors import NearestNeighbors
 from ..utils import rotate_points_along_z
 from ..utils.plotting import plot_pointcloud
 from .cuboid import OrientedCuboid
-
-try:
-    # rust implementation
-    from fps_utils import fps_sampling
-
-    ENABLE_RUST_FPS_FLAG = True
-except:
-    from ..utils.fps import FPS
-
-    ENABLE_RUST_FPS_FLAG = False
 
 if TYPE_CHECKING:
     from .scannet_scan import ScannetScan
@@ -229,11 +220,7 @@ class ThreeDObject(object):
                     )
                 xyz = xyz[sub_samples_idx].astype(np.float32)
                 color = color[sub_samples_idx].astype(np.float32)
-                if ENABLE_RUST_FPS_FLAG:
-                    idx = fps_sampling(xyz, n_samples)
-                else:
-                    fps = FPS(xyz, n_samples)
-                    idx = fps.fit()
+                idx = fpsample.fps_sampling(xyz, n_samples)
 
             object_samples = {
                 "xyz": xyz[idx].copy(),

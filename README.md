@@ -46,9 +46,3 @@ Next, install cpp extensions for pointnet:
 cd instruct-insertion/openpoints/cpp/pointnet2_batch
 python setup.py install
 ```
-
-(Optional) Install rust implementation of furthest points sampling using `maturin`:
-```shell
-cd instruct-insertion/fps-utils
-maturin develop --release
-```
