@@ -53,8 +53,6 @@ from torch import optim
 from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from transformers import BatchEncoding, BertTokenizer
 
-# from models.referit3d_model.utils.tf_visualizer import Visualizer
-
 ###########################
 #                         #
 #    Diffusion related    #

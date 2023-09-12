@@ -9,7 +9,9 @@
   ],
   "license": "MIT",
   "repository": {},
-  "author": {"name": "placeholder"},
+  "author": {
+    "name": "placeholder"
+  },
   "contributors": [],
   "bugs": {},
   "engines": {
@@ -22,6 +24,7 @@
     "mocha": "mocha test/ --recursive"
   },
   "dependencies": {
+    "@mapbox/node-pre-gyp": "^1.0.11",
     "better-queue": "^3.7.21",
     "better-queue-memory": "^1.0.1",
     "better-queue-sql": "^1.0.0",
