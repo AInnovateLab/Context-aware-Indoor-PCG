@@ -3,6 +3,7 @@ from typing import Any, Dict, Generator, Tuple
 
 import accelerate
 import evaluate
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,6 +12,7 @@ from models.point_e_model.diffusion.sampler import PointCloudSampler
 from models.point_e_model.util.plotting import plot_point_cloud
 from models.point_e_model.util.point_cloud import PointCloud
 from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
+from plyfile import PlyData, PlyElement
 from transformers import BatchEncoding
 from utils import create_dir
 
@@ -40,6 +42,32 @@ def compute_metrics(metrics: Dict[str, evaluate.EvaluationModule]) -> Dict[str, 
             ret[metric_name] = metric_ret
 
     return ret
+
+
+def write_ply(points, save_path):
+    """
+    points: numpy array in shape (N, 6) or (N, 7)
+    save_name: str end with ".ply"
+    """
+    assert points.shape[1] == 6 or points.shape[1] == 7, "points.shape[1] should be 6 or 7"
+    assert save_path.endswith(".ply"), "save_name should end with '.ply'"
+    points = [
+        (points[i, 0], points[i, 1], points[i, 2], points[i, 3], points[i, 4], points[i, 5])
+        for i in range(points.shape[0])
+    ]
+    vertex = np.array(
+        points,
+        dtype=[
+            ("x", "f4"),
+            ("y", "f4"),
+            ("z", "f4"),
+            ("red", "f4"),
+            ("green", "f4"),
+            ("blue", "f4"),
+        ],
+    )
+    data = PlyElement.describe(vertex, "vertex", comments=["vertices"])
+    PlyData([data]).write(save_path)
 
 
 def start_training_loop_steps(
@@ -203,6 +231,11 @@ def evaluate_on_dataset(
         aux = last_pcs[:, 3:, :]
         aux = aux.clamp_(0, 255).round_().div_(255.0)
 
+        #######################
+        #                     #
+        #    Visualization    #
+        #                     #
+        #######################
         # Visualization of the point cloud
         aux_input = {}
         for i, name in enumerate(sampler.aux_channels):
@@ -248,6 +281,16 @@ def evaluate_on_dataset(
                 area=1,
                 save_path=os.path.join(demo_dir, f"raw_{stimulus_id}.png"),
             )
+
+            coords = pos[batch_idx].permute(1, 0)  # (P, 3)
+            coords = (
+                coords * batch["tgt_box_max_dist"][batch_idx] + batch["tgt_box_center"][batch_idx]
+            )
+            colors = aux[batch_idx].permute(1, 0).mul_(255.0)  # (P, 3 or 4)
+            vis_pc = torch.cat((coords, colors), dim=-1)  # (P, 6 or 7)
+
+            # TODO - Need test
+            write_ply(vis_pc, output_file=os.path.join(demo_dir, f"{stimulus_id}.ply"))
 
             # NOTE - break here since only save the first img each batch
             break
