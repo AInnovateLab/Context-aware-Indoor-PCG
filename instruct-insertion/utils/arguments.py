@@ -269,13 +269,6 @@ def parse_arguments(notebook_options=None):
         help="csv with sr3d data to augment training data" "of args.referit3D-file",
     )
     parser.add_argument(
-        "--fine-tune",
-        type=str2bool,
-        default=False,
-        help="use if you train with dataset x and then you "
-        "continue training with another dataset",
-    )
-    parser.add_argument(
         "--s-vs-n-weight",
         type=float,
         default=None,

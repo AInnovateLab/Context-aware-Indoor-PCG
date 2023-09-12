@@ -176,27 +176,16 @@ def main():
         main_process_only=True,
     )
 
-    # model params
-    param_list = [
-        {"params": mvt3dvg.obj_encoder.parameters(), "lr": args.init_lr},
-        {"params": mvt3dvg.obj_encoder_agg_proj.parameters(), "lr": args.init_lr},
-        #
-        {"params": mvt3dvg.language_encoder.parameters(), "lr": args.init_lr * 0.1},
-        #
-        {"params": mvt3dvg.refer_encoder.parameters(), "lr": args.init_lr * 0.1},
-        #
-        {"params": mvt3dvg.box_feature_mapping.parameters(), "lr": args.init_lr},
-        {"params": mvt3dvg.box_layers.parameters(), "lr": args.init_lr},
-        #
-        {"params": mvt3dvg.locate_token.parameters(), "lr": args.init_lr},
-        #
-        {"params": mvt3dvg.language_clf.parameters(), "lr": args.init_lr},
-        {"params": mvt3dvg.object_language_clf.parameters(), "lr": args.init_lr},
-    ]
-    if not args.label_lang_sup:
-        param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
-    if args.offset_prediction:
-        param_list.append({"params": mvt3dvg.offset_layer.parameters(), "lr": args.init_lr})
+    # mvt model params
+    param_list = list()
+    special_lr_dict = {
+        "language_encoder": args.init_lr * 0.1,
+        "refer_encoder": args.init_lr * 0.1,
+    }
+    for name, mod in mvt3dvg.named_children():
+        param_list.append(
+            {"params": mod.parameters(), "lr": special_lr_dict.get(name, args.init_lr)}
+        )
 
     #######################
     #                     #
@@ -227,6 +216,7 @@ def main():
     # construct diffusion
     point_e_diffusion = diffusion_from_config(DIFFUSION_CONFIGS[args.point_e_model])
 
+    # point-e model params
     param_list.append({"params": point_e.parameters(), "lr": args.init_lr * 0.2})
     optimizer = optim.AdamW(param_list, betas=(0.95, 0.999), eps=1e-6, weight_decay=1e-3)
 
@@ -548,7 +538,7 @@ def main():
             MVT3DVG=mvt3dvg,
             point_e=point_e,
             sampler=sampler,
-            data_loader=data_loaders["test_small"],
+            data_loader=data_loaders["test"],
             device=device,
             args=args,
             metrics_=metrics_dict["test"],
