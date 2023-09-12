@@ -182,10 +182,14 @@ def main():
         "language_encoder": args.init_lr * 0.1,
         "refer_encoder": args.init_lr * 0.1,
     }
+    special_mod_names = list(special_lr_dict.keys())
     for name, mod in mvt3dvg.named_children():
         param_list.append(
             {"params": mod.parameters(), "lr": special_lr_dict.get(name, args.init_lr)}
         )
+        if name in special_mod_names:
+            special_mod_names.remove(name)
+    assert len(special_mod_names) == 0, f"Special modules not found: {special_mod_names}"
 
     #######################
     #                     #
