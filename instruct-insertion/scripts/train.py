@@ -195,6 +195,8 @@ def main():
     ]
     if not args.label_lang_sup:
         param_list.append({"params": mvt3dvg.obj_clf.parameters(), "lr": args.init_lr})
+    if args.args.offset_prediction:
+        param_list.append({"params": mvt3dvg.offset_layer.parameters(), "lr": args.init_lr})
 
     #######################
     #                     #
