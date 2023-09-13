@@ -283,15 +283,15 @@ def evaluate_on_dataset(
                 save_path=os.path.join(demo_dir, f"raw_{stimulus_id}.png"),
             )
 
-            coords = pos[batch_idx].permute(1, 0)  # (P, 3)
-            coords = (
-                coords * batch["tgt_box_max_dist"][batch_idx] + batch["tgt_box_center"][batch_idx]
-            )
-            colors = aux[batch_idx].permute(1, 0).mul_(255.0)  # (P, 3 or 4)
-            vis_pc = torch.cat((coords, colors), dim=-1)  # (P, 6 or 7)
+            # coords = pos[batch_idx].permute(1, 0)  # (P, 3)
+            # coords = (
+            #     coords * batch["tgt_box_max_dist"][batch_idx] + batch["tgt_box_center"][batch_idx]
+            # )
+            # colors = aux[batch_idx].permute(1, 0).mul_(255.0)  # (P, 3 or 4)
+            # vis_pc = torch.cat((coords, colors), dim=-1)  # (P, 6 or 7)
 
             # TODO - Need test
-            write_ply(vis_pc, output_file=os.path.join(demo_dir, f"{stimulus_id}.ply"))
+            # write_ply(vis_pc, output_file=os.path.join(demo_dir, f"{stimulus_id}.ply"))
 
             # NOTE - break here since only save the first img each batch
             break
