@@ -46,3 +46,22 @@ Next, install cpp extensions for pointnet:
 cd instruct-insertion/openpoints/cpp/pointnet2_batch
 python setup.py install
 ```
+
+### Visualization
+
+Install `jupyterlab` and interative widgets:
+```shell
+pip install trame==2.5 jupyter-server-proxy
+```
+
+## FAQ
+
+If the following error occurs:
+```
+libstdc++.so.6: version `GLIBCXX_3.4.30' not found
+```
+
+Then update the libstdc++ library in conda:
+```shell
+conda install -c conda-forge libstdcxx-ng
+```

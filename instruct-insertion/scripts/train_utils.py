@@ -14,7 +14,7 @@ from models.point_e_model.util.point_cloud import PointCloud
 from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from plyfile import PlyData, PlyElement
 from transformers import BatchEncoding
-from utils import create_dir
+from utils import PathLike, create_dir
 
 
 def move_batch_to_device_(batch: Dict[str, Any], device):
@@ -44,12 +44,13 @@ def compute_metrics(metrics: Dict[str, evaluate.EvaluationModule]) -> Dict[str, 
     return ret
 
 
-def write_ply(points, save_path):
+def write_ply(points, save_path: PathLike):
     """
     points: numpy array in shape (N, 6) or (N, 7)
     save_name: str end with ".ply"
     """
     assert points.shape[1] == 6 or points.shape[1] == 7, "points.shape[1] should be 6 or 7"
+    save_path = str(save_path)
     assert save_path.endswith(".ply"), "save_name should end with '.ply'"
     points = [
         (points[i, 0], points[i, 1], points[i, 2], points[i, 3], points[i, 4], points[i, 5])
