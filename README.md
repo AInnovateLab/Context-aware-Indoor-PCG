@@ -64,4 +64,5 @@ libstdc++.so.6: version `GLIBCXX_3.4.30' not found
 Then update the libstdc++ library in conda:
 ```shell
 conda install -c conda-forge libstdcxx-ng
+conda install -c conda-forge gcc=12
 ```
