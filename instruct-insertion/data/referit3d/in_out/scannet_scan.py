@@ -123,6 +123,7 @@ class ScannetScan(object):
             color (np.ndarray): (N, 3) array of the RGB color of the points. Ranging from 0 to 1.
         """
         scan_ply_suffix = "_vh_clean_2.labels.ply"
+        mesh_ply_suffix = "_vh_clean_2.ply"
 
         scan_data_file = osp.join(
             self.dataset.top_scan_dir, self.scan_id, self.scan_id + scan_ply_suffix
@@ -139,6 +140,10 @@ class ScannetScan(object):
 
         color = None
         if load_color:
+            scan_data_file = osp.join(
+                self.dataset.top_scan_dir, self.scan_id, self.scan_id + mesh_ply_suffix
+            )
+            data = PlyData.read(scan_data_file)
             r = np.asarray(data.elements[0].data["red"])
             g = np.asarray(data.elements[0].data["green"])
             b = np.asarray(data.elements[0].data["blue"])

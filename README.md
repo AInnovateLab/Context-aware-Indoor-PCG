@@ -54,6 +54,11 @@ Install `jupyterlab` and interative widgets:
 pip install trame==2.5 jupyter-server-proxy
 ```
 
+#### Recommended Test Scene
+```
+(['scene0474_00'], ['Create a chair on the ground in the corner.'], 19)
+```
+
 ## FAQ
 
 If the following error occurs:

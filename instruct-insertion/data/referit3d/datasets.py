@@ -119,11 +119,11 @@ class ReferIt3DDataset(Dataset):
         if self.random_rotation:
             rot_mat = (
                 R.from_euler("z", np.random.uniform(0, 360), degrees=True).as_matrix().transpose()
-            )
+            ).astype(np.float32)
             samples_w_tgt[:, :, :3] = samples_w_tgt[:, :, :3] @ rot_mat
             tgt_box_center_w_tgt = tgt_box_center_w_tgt @ rot_mat
         else:
-            rot_mat = np.eye(3)
+            rot_mat = np.eye(3, dtype=np.float32)
 
         # the max dist from the center point to the farthest point in the bbox
         tgt_box_max_dist_w_tgt = np.empty((len(context_w_tgt),))  # (# of objects,)

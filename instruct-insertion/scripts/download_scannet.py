@@ -19,7 +19,7 @@ FILETYPES = [
     ".txt",
     # "_vh_clean.ply",
     "_vh_clean_2.0.010000.segs.json",
-    # "_vh_clean_2.ply",
+    "_vh_clean_2.ply",
     # "_vh_clean.segs.json",
     # "_vh_clean.aggregation.json",
     "_vh_clean_2.labels.ply",

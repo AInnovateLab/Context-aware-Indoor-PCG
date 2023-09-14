@@ -107,7 +107,7 @@ def start_training_loop_steps(
                 # train diffusion
                 reals = batch["tgt_pc"][:, :, :6]  # (B, P, 6)
                 ## rgb rescale to [0, 255]
-                reals[:, :, 3:] = reals[:, :, 3:].mul_(255.0)
+                reals[:, :, 3:] = reals[:, :, 3:].mul(255.0)
                 cond = batch["text"]  # List of str
 
                 # Here we add the tensor from MVT3DVG to point_e

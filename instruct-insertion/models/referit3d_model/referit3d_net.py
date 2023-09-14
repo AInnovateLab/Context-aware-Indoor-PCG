@@ -407,6 +407,8 @@ class ReferIt3DNet_transformer(nn.Module):
             # adjust the box center
             mean_pos_preds = pos_preds * obj_mask_coef[:, :, None]  # (B, N, 3)
             mean_pos_preds = mean_pos_preds.sum(dim=1) / obj_mask_coef.sum(dim=1)[:, None]  # (B, 3)
+            # NOTE: detach the LOCATE_PREDS to avoid the gradient back-propagation
+            LOCATE_PREDS = LOCATE_PREDS.detach().clone()
             LOCATE_PREDS[:, :3] = (1.0 - self.rel_pred_alpha) * LOCATE_PREDS[:, :3] + (
                 self.rel_pred_alpha
             ) * mean_pos_preds
