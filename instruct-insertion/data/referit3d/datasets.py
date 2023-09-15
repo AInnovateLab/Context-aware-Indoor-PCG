@@ -199,11 +199,13 @@ class ReferIt3DDataset(Dataset):
         res["tgt_box_max_dist"] = tgt_box_max_dist_w_tgt[0]  # scalar
 
         if self.axis_norm:
-            res["min_box_center_axis_norm"] = min_xyz  # (1, 3)
-            res["max_box_center_axis_norm"] = max_xyz  # (1, 3)
-            res["ctx_box_center_axis_norm"] = tgt_box_center_w_tgt_axis_norm[
-                1:
-            ]  # (# of objects, 3)
+            res["min_box_center_before_axis_norm"] = min_xyz[0]  # (3,)
+            res["max_box_center_before_axis_norm"] = max_xyz[0]  # (3,)
+            res["ctx_box_center_axis_norm"] = np.pad(
+                tgt_box_center_w_tgt_axis_norm[1:],
+                ((0, self.max_context_objects - len(context)), (0, 0)),
+                constant_values=0,
+            )  # (# of objects, # of points, 6 or 7)
             res["tgt_box_center_axis_norm"] = tgt_box_center_w_tgt_axis_norm[0]  # (3,)
 
         """

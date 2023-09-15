@@ -200,13 +200,19 @@ class ReferIt3DNet_transformer(nn.Module):
         else:
             self.axis_norm_xy_layers = MLP(
                 self.inner_dim,
-                [self.inner_dim, self.inner_dim, self.axis_norm**2],
+                [self.inner_dim, self.inner_dim, self.axis_norm_bins**2],
                 dropout_rate=self.dropout_rate,
                 norm_type=None,
             )
             self.axis_norm_z_layers = MLP(
                 self.inner_dim,
-                [self.inner_dim, self.inner_dim, self.axis_norm],
+                [self.inner_dim, self.inner_dim, self.axis_norm_bins],
+                dropout_rate=self.dropout_rate,
+                norm_type=None,
+            )
+            self.radius_layers = MLP(
+                self.inner_dim,
+                [self.inner_dim, self.inner_dim, 1],
                 dropout_rate=self.dropout_rate,
                 norm_type=None,
             )
@@ -219,30 +225,15 @@ class ReferIt3DNet_transformer(nn.Module):
         self.lang_logits_loss = nn.CrossEntropyLoss()
         self.class_logits_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
-    def compute_loss(
-        self, batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS=None, AUX_LOGITS=None, AUX_LOSS=None
-    ):
+    def compute_loss(self, batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOGITS=None, AUX_LOSS=None):
         # CLASS_LOGITS.transpose(2, 1) (B,C=525,D=52) <--> batch['class_labels'] (B,D)
         obj_clf_loss = self.class_logits_loss(CLASS_LOGITS.transpose(2, 1), batch["ctx_class"])
 
         # LANG_LOGITS (B, C=524) <--> batch['target_class'] (B,)
         lang_clf_loss = self.lang_logits_loss(LANG_LOGITS, batch["tgt_class"])
 
-        # center loss
-        # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
-        if not self.axis_norm:
-            locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
-        else:
-            locate_loss = None
-
-        # radius loss
-        # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_max_dist'] (B,)
-        dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
-
         total_loss = (
-            (locate_loss or 0.0)
-            + (AUX_LOSS or 0.0)
-            + dist_loss
+            (AUX_LOSS or 0.0)
             + self.obj_cls_alpha * obj_clf_loss
             + self.lang_cls_alpha * lang_clf_loss
         )
@@ -328,7 +319,15 @@ class ReferIt3DNet_transformer(nn.Module):
         # directly predict the center point of box
         if not self.axis_norm:
             LOCATE_PREDS = self.box_layers(ctx_embeds)  # (B, 4)
-            LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS=LOCATE_PREDS)
+            # center loss
+            # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
+            locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
+            # radius loss
+            # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_max_dist'] (B,)
+            dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
+            LOSS = self.compute_loss(
+                batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOSS=locate_loss + dist_loss
+            )
         else:
             (
                 tgt_box_center_axis_norm,  # (B, 3)
@@ -348,7 +347,7 @@ class ReferIt3DNet_transformer(nn.Module):
             bins_xy = (
                 bins[:, 0] + bins[:, 1] * self.axis_norm_bins
             )  # (B,), range from [0, axis_norm_bins^2 - 1], row-major or x-major
-            bins_z = bin[:, 2]  # (B,), range from [0, axis_norm_bins - 1]
+            bins_z = bins[:, 2]  # (B,), range from [0, axis_norm_bins - 1]
             # predict a bin using ctx
             pred_xy = self.axis_norm_xy_layers(ctx_embeds)  # (B, axis_norm^2)
             pred_z = self.axis_norm_z_layers(ctx_embeds)  # (B, axis_norm)
@@ -356,7 +355,13 @@ class ReferIt3DNet_transformer(nn.Module):
             loss_xy = F.cross_entropy(pred_xy, bins_xy)
             loss_z = F.cross_entropy(pred_z, bins_z)
             loss_axis_norm = loss_xy + loss_z
-            LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOSS=loss_axis_norm)
+            # compute radius loss
+            pred_radius = self.radius_layers(ctx_embeds)  # (B, 1)
+            dist_loss = self.radius_loss(pred_radius[:, 0], batch["tgt_box_max_dist"])
+            # final loss
+            LOSS = self.compute_loss(
+                batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOSS=loss_axis_norm + dist_loss
+            )
             # restore the center point of box in original space
             pred_bin_xy = pred_xy.argmax(dim=-1)  # (B,)
             pred_bin_z = pred_z.argmax(dim=-1)  # (B,)
@@ -368,6 +373,7 @@ class ReferIt3DNet_transformer(nn.Module):
             LOCATE_PREDS = min_box_center_axis_norm * pred_bin + max_box_center_axis_norm * (
                 1 - pred_bin
             )
+            LOCATE_PREDS = torch.cat([LOCATE_PREDS, pred_radius], dim=-1)  # (B, 4)
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
         return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()
