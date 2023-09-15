@@ -117,9 +117,10 @@ class ReferIt3DDataset(Dataset):
 
         # random ratation
         if self.random_rotation:
-            rot_mat = (
-                R.from_euler("z", np.random.uniform(0, 360), degrees=True).as_matrix().transpose()
-            ).astype(np.float32)
+            deg = 90 * np.random.randint(4)
+            rot_mat = (R.from_euler("z", deg, degrees=True).as_matrix().transpose()).astype(
+                np.float32
+            )
             samples_w_tgt[:, :, :3] = samples_w_tgt[:, :, :3] @ rot_mat
             tgt_box_center_w_tgt = tgt_box_center_w_tgt @ rot_mat
         else:
