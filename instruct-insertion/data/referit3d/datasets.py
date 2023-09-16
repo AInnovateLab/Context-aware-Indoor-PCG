@@ -128,6 +128,20 @@ class ReferIt3DDataset(Dataset):
         else:
             rot_mat = np.eye(3, dtype=np.float32)
 
+        if self.axis_norm:
+            # x,y,z axis norm for box center
+            # find each min/max of x,y,z axis first
+            min_xyz = samples_w_tgt[..., :3].reshape(-1, 3).min(axis=0, keepdims=True)
+            max_xyz = samples_w_tgt[..., :3].reshape(-1, 3).max(axis=0, keepdims=True)
+            # min_xyz = tgt_box_center_w_tgt.min(axis=0, keepdims=True)  # (1, 3)
+            # max_xyz = tgt_box_center_w_tgt.max(axis=0, keepdims=True)  # (1, 3)
+            edge_len_xyz = max_xyz - min_xyz  # (1, 3)
+            tgt_box_center_w_tgt_axis_norm = (
+                tgt_box_center_w_tgt - min_xyz
+            ) / edge_len_xyz  # (# of objects, 3)
+            # scale from [0, 1] to [-1, 1]
+            tgt_box_center_w_tgt_axis_norm = tgt_box_center_w_tgt_axis_norm * 2 - 1
+
         # the max dist from the center point to the farthest point in the bbox
         tgt_box_max_dist_w_tgt = np.empty((len(context_w_tgt),))  # (# of objects,)
         for i, o in enumerate(context_w_tgt):
@@ -138,18 +152,6 @@ class ReferIt3DDataset(Dataset):
             samples_w_tgt = self.object_transformation(
                 samples_w_tgt, box_center=tgt_box_center_w_tgt, box_max_dist=tgt_box_max_dist_w_tgt
             )
-
-        if self.axis_norm:
-            # x,y,z axis norm for box center
-            # find each min/max of x,y,z axis first
-            min_xyz = tgt_box_center_w_tgt.min(axis=0, keepdims=True)  # (1, 3)
-            max_xyz = tgt_box_center_w_tgt.max(axis=0, keepdims=True)  # (1, 3)
-            edge_len_xyz = max_xyz - min_xyz  # (1, 3)
-            tgt_box_center_w_tgt_axis_norm = (
-                tgt_box_center_w_tgt - min_xyz
-            ) / edge_len_xyz  # (# of objects, 3)
-            # scale from [0, 1] to [-1, 1]
-            tgt_box_center_w_tgt_axis_norm = tgt_box_center_w_tgt_axis_norm * 2 - 1
 
         res["scan_id"] = scan_id
         res["stimulus_id"] = stimulus_id

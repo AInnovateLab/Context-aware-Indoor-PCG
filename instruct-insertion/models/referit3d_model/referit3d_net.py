@@ -247,12 +247,12 @@ class ReferIt3DNet_transformer(nn.Module):
         #                                 #
         ###################################
         obj_points = batch["ctx_pc"].float()
-        ctx_box_center_axis_norm = batch["ctx_box_center_axis_norm"]
         if not self.axis_norm:
             boxs = torch.cat(
                 (batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1
             ).float()  # (B, N, 4)
         else:
+            ctx_box_center_axis_norm = batch["ctx_box_center_axis_norm"]
             boxs = torch.cat(
                 (ctx_box_center_axis_norm, batch["ctx_box_max_dist"][:, :, None]), dim=-1
             ).float()  # (B, N, 4)
@@ -316,8 +316,8 @@ class ReferIt3DNet_transformer(nn.Module):
         # return the center point of box and box max distance
         # ctx_embeds: (B, C)
 
-        # directly predict the center point of box
         if not self.axis_norm:
+            # directly predict the center point of box
             LOCATE_PREDS = self.box_layers(ctx_embeds)  # (B, 4)
             # center loss
             # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
@@ -329,6 +329,7 @@ class ReferIt3DNet_transformer(nn.Module):
                 batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOSS=locate_loss + dist_loss
             )
         else:
+            # predict the center point of box in axis norm space
             (
                 tgt_box_center_axis_norm,  # (B, 3)
                 min_box_center_axis_norm,  # (B, 3)
@@ -369,9 +370,11 @@ class ReferIt3DNet_transformer(nn.Module):
             pred_bin_y = pred_bin_xy // self.axis_norm_bins  # (B,)
             pred_bin = torch.stack((pred_bin_x, pred_bin_y, pred_bin_z), dim=-1)  # (B, 3)
             pred_bin = pred_bin.float()  # (B, 3)
-            pred_bin = pred_bin / self.axis_norm_bins  # (B, 3), range from [0, 1]
-            LOCATE_PREDS = min_box_center_axis_norm * pred_bin + max_box_center_axis_norm * (
-                1 - pred_bin
+            pred_bin += 0.5  # align to the center of bin
+            pred_bin /= self.axis_norm_bins  # (B, 3), range from [0, 1]
+            LOCATE_PREDS = (
+                min_box_center_axis_norm
+                + (max_box_center_axis_norm - min_box_center_axis_norm) * pred_bin
             )
             LOCATE_PREDS = torch.cat([LOCATE_PREDS, pred_radius], dim=-1)  # (B, 4)
 
