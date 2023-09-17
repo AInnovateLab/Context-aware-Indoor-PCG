@@ -379,7 +379,24 @@ class ReferIt3DNet_transformer(nn.Module):
             LOCATE_PREDS = torch.cat([LOCATE_PREDS, pred_radius], dim=-1)  # (B, 4)
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
-        return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()
+        if self.axis_norm:
+            return (
+                ctx_embeds,
+                LOSS,
+                CLASS_LOGITS.detach(),
+                LANG_LOGITS.detach(),
+                LOCATE_PREDS.detach(),
+                (pred_xy, pred_z, pred_radius),
+            )
+        else:
+            return (
+                ctx_embeds,
+                LOSS,
+                CLASS_LOGITS.detach(),
+                LANG_LOGITS.detach(),
+                LOCATE_PREDS.detach(),
+                None,
+            )
 
     def forward_obj_cls(self, obj_points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
