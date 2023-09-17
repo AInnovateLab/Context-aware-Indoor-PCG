@@ -207,20 +207,9 @@ class ThreeDObject(object):
                 idx = np.arange(n_points)
                 np.random.shuffle(idx)
             else:
-                # only use fps on a subset of the points, Nx the number of samples
-                if max_fps_candidates is None:
-                    max_fps_candidates = 4 * n_samples
+                max_fps_candidates = max_fps_candidates or 4 * n_samples
                 assert max_fps_candidates >= n_samples, "max_fps_candidates must be >= n_samples"
-
-                if max_fps_candidates >= n_points:
-                    sub_samples_idx = np.arange(n_points)
-                else:
-                    sub_samples_idx = np.random.choice(
-                        n_points, max_fps_candidates, replace=n_points < max_fps_candidates
-                    )
-                xyz = xyz[sub_samples_idx].astype(np.float32)
-                color = color[sub_samples_idx].astype(np.float32)
-                idx = fpsample.bucket_fps_kdline_sampling(xyz, n_samples, h=7)
+                idx = fpsample.bucket_fps_kdline_sampling(xyz, n_samples, h=5)
 
             object_samples = {
                 "xyz": xyz[idx].copy(),
