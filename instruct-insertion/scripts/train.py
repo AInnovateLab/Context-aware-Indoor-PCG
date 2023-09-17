@@ -271,8 +271,8 @@ def main():
         "checkpoint_steps": 0,
         "best_test_metric": None,
         "best_test_step": -1,
-        "best_test_metric_name": "test_point_e_pc_cls_accuracy",
-        "best_test_metric_comp": operator.gt,
+        "best_test_metric_name": "test_rf3d_loc_estimate_with_top_k_dist",
+        "best_test_metric_comp": operator.lt,
     }
 
     # Resume training

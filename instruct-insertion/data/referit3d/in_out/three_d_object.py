@@ -220,7 +220,7 @@ class ThreeDObject(object):
                     )
                 xyz = xyz[sub_samples_idx].astype(np.float32)
                 color = color[sub_samples_idx].astype(np.float32)
-                idx = fpsample.fps_sampling(xyz, n_samples)
+                idx = fpsample.bucket_fps_kdline_sampling(xyz, n_samples, h=7)
 
             object_samples = {
                 "xyz": xyz[idx].copy(),
