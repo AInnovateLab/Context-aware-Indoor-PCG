@@ -32,9 +32,9 @@ class LocEstimateWithTopN(evaluate.Metric):
         assert predictions.shape[2] == references.shape[1]
         assert predictions.ndim == 3
         for i in range(predictions.shape[1]):
-            dist = np.linalg.norm(predictions[:, i, :3] - references[:, i, :3], ord=2, axis=1)
+            dist = np.linalg.norm(predictions[:, i, :3] - references[:, i, :3], ord=2, axis=2)
             dist = np.mean(dist)
-            radius_diff = np.abs(predictions[:, 3] - references[:, 3])
+            radius_diff = np.abs(predictions[:, i, 3] - references[:, i, 3])
             radius_diff = np.mean(radius_diff)
             if i == 0:
                 dist_min = dist
