@@ -370,8 +370,8 @@ class ReferIt3DNet_transformer(nn.Module):
             pred_bin_y = pred_bin_xy // self.axis_norm_bins  # (B,)
             pred_bin = torch.stack((pred_bin_x, pred_bin_y, pred_bin_z), dim=-1)  # (B, 3)
             pred_bin = pred_bin.float()  # (B, 3)
-            pred_bin += 0.5  # align to the center of bin
-            pred_bin /= self.axis_norm_bins  # (B, 3), range from [0, 1]
+            pred_bin = pred_bin + 0.5  # align to the center of bin
+            pred_bin = pred_bin / self.axis_norm_bins  # (B, 3), range from [0, 1]
             LOCATE_PREDS = (
                 min_box_center_axis_norm
                 + (max_box_center_axis_norm - min_box_center_axis_norm) * pred_bin

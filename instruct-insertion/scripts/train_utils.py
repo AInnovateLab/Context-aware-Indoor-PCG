@@ -307,7 +307,7 @@ def evaluate_on_dataset(
         #    metrics update    #
         #                      #
         ########################
-        if pred_xyz:
+        if args.axis_norm:
             pred_xy, pred_z, pred_radius = pred_xyz
             pred_xy_topk_bins = pred_xy.topk(5, dim=-1)[1]  # (B, 5)
             pred_z_topk_bins = pred_z.topk(5, dim=-1)[1]  # (B, 5)
@@ -318,21 +318,21 @@ def evaluate_on_dataset(
             )  # (B, 5, 3)
             pred_bins = (pred_bins.float() + 0.5) / args.axis_norm_bins  # (B, 5, 3)
             (
-                tgt_box_center_axis_norm,  # (B, 3)
                 min_box_center_axis_norm,  # (B, 3)
                 max_box_center_axis_norm,  # (B, 3)
             ) = (
-                batch["tgt_box_center_axis_norm"],
                 batch["min_box_center_before_axis_norm"],
                 batch["max_box_center_before_axis_norm"],
             )  # all range from [-1, 1]
             pred_topk_xyz = (
-                min_box_center_axis_norm
-                + (max_box_center_axis_norm - min_box_center_axis_norm) * pred_bins
+                min_box_center_axis_norm[:, None]
+                + (max_box_center_axis_norm - min_box_center_axis_norm)[:, None] * pred_bins
             )  # (B, 5, 3)
             pred_radius = pred_radius.unsqueeze(-1).permute(0, 2, 1).repeat(1, 5, 1)  # (B, 5, 1)
             pred_topk_xyz = torch.cat([pred_topk_xyz, pred_radius], dim=-1)  # (B, 5, 4)
             pred_xyz = pred_topk_xyz
+        else:
+            pred_xyz = torch.tensor([])
 
         # gather for multi-gpu
         (
@@ -369,8 +369,8 @@ def evaluate_on_dataset(
             predictions=LOCATE_PREDS.float(),
             references=locate_tgt.float(),
         )
-        if pred_xyz:
-            metrics_["test_rf3d_loc_estimate_with_top_n"].add_batch(
+        if args.axis_norm:
+            metrics_["test_rf3d_loc_estimate_with_top_k"].add_batch(
                 predictions=pred_xyz.float(),
                 references=locate_tgt.float(),
             )

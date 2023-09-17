@@ -6,14 +6,18 @@ import datasets
 
 
 class LocEstimateWithTopN(evaluate.Metric):
+    def __init__(self, *args, topk=5, **kwargs):
+        self.topk = topk
+        super().__init__(*args, **kwargs)
+
     def _info(self) -> EvaluationModuleInfo:
         return evaluate.MetricInfo(
-            description="Distance between predicted and reference points and the L1 difference of estimated radius.",
+            description="Top-k, Distance between predicted and reference points and the L1 difference of estimated radius.",
             citation="",
             inputs_description="",
             features=datasets.Features(
                 {
-                    "predictions": datasets.Sequence(datasets.Value("float"), length=4),
+                    "predictions": datasets.Array2D((self.topk, 4), "float32"),
                     "references": datasets.Sequence(datasets.Value("float"), length=4),
                 }
             ),
@@ -30,23 +34,11 @@ class LocEstimateWithTopN(evaluate.Metric):
         references = np.array(references)
         assert predictions.shape[0] == references.shape[0]
         assert predictions.shape[2] == references.shape[1]
-        assert predictions.ndim == 3
-        for i in range(predictions.shape[1]):
-            dist = np.linalg.norm(predictions[:, i, :3] - references[:, i, :3], ord=2, axis=2)
-            dist = np.mean(dist)
-            radius_diff = np.abs(predictions[:, i, 3] - references[:, i, 3])
-            radius_diff = np.mean(radius_diff)
-            if i == 0:
-                dist_min = dist
-                radius_diff_min = radius_diff
-                idx_of_min = i
-            if dist < dist_min:
-                dist_min = dist
-                radius_diff_min = radius_diff
-                idx_of_min = i
 
+        dist = np.linalg.norm(predictions[:, :, :3] - references[:, :3], ord=2, axis=2)
+        radius_diff = np.abs(predictions[:, :, 3] - references[:, 3])
         return {
-            "dist": float(dist_min),
-            "radius_diff": float(radius_diff_min),
-            "idx_of_min": int(idx_of_min),
+            "dist": float(dist.min()),
+            "radius_diff": float(radius_diff.min()),
+            "idx_of_min": int(np.argmin(dist)),
         }

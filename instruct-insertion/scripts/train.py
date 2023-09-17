@@ -308,11 +308,11 @@ def main():
                 num_process=accelerator.num_processes,
                 experiment_id="test_rf3d_loc_estimate",
             ),
-            "test_rf3d_loc_estimate_with_top_n": evaluate.load(
-                LOCAL_METRIC_PATHS["loc_estimate_with_top_n"],
+            "test_rf3d_loc_estimate_with_top_k": evaluate.load(
+                LOCAL_METRIC_PATHS["loc_estimate_with_top_k"],
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
-                experiment_id="test_rf3d_loc_estimate_with_top_n",
+                experiment_id="test_rf3d_loc_estimate_with_top_k",
             ),
             "test_rf3d_cls": evaluate.load(
                 LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
