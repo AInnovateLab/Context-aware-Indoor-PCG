@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, List, Optional
 
 import fpsample
+import methodtools
 import numpy as np
 import torch
 from shapely.geometry import LineString, Polygon
@@ -33,7 +34,6 @@ class ThreeDObject(object):
         self._instance_label = instance_label
 
         self.axis_aligned_bbox = None
-        self.is_axis_aligned_bbox_set = False
 
         self.object_aligned_bbox = None
         self.has_object_aligned_bbox = False
@@ -41,8 +41,6 @@ class ThreeDObject(object):
         self.front_direction = None
         self.has_front_direction = False
         self._use_true_instance = True
-
-        self.pc = None  # The point cloud (xyz)
 
     @property
     def instance_label(self):
@@ -56,6 +54,10 @@ class ThreeDObject(object):
         self._instance_label = instance_label
 
     @property
+    def pc(self):
+        return self.scan.pc[self.points]
+
+    @property
     def color(self):
         """
         The color (RGB) of the object's point cloud.
@@ -63,7 +65,7 @@ class ThreeDObject(object):
         return self.scan.color[self.points]
 
     def plot(self, with_color=True):
-        pc = self.get_pc()
+        pc = self.pc
         x = pc[:, 0]
         y = pc[:, 1]
         z = pc[:, 2]
@@ -80,8 +82,9 @@ class ThreeDObject(object):
         bbox = self.get_axis_align_bbox()
         return bbox.extrema[5]
 
-    def set_axis_align_bbox(self):
-        pc = self.get_pc()
+    @methodtools.lru_cache
+    def get_axis_align_bbox(self):
+        pc = self.pc
 
         cx, cy, cz = (np.max(pc, axis=0) + np.min(pc, axis=0)) / 2.0
         lx, ly, lz = np.max(pc, axis=0) - np.min(pc, axis=0)
@@ -89,24 +92,7 @@ class ThreeDObject(object):
         assert lx > 0 and ly > 0 and lz > 0
 
         self.axis_aligned_bbox = OrientedCuboid(cx, cy, cz, lx, ly, lz, rot)
-        self.is_axis_aligned_bbox_set = True
-
-    def get_axis_align_bbox(self):
-        if self.is_axis_aligned_bbox_set:
-            pass
-        else:
-            self.set_axis_align_bbox()
         return self.axis_aligned_bbox
-
-    def set_pc(self):
-        if self.pc is None:
-            self.pc = self.scan.pc[self.points]
-
-    def get_pc(self):
-        # Set the pc if not previously initialized
-        self.set_pc()
-
-        return self.pc
 
     def set_object_aligned_bbox(self, cx, cy, cz, lx, ly, lz, rot):
         self.object_aligned_bbox = OrientedCuboid(cx, cy, cz, lx, ly, lz, rot)
@@ -183,15 +169,15 @@ class ThreeDObject(object):
             cent_line = LineString([center, other_center])
             return cent_line.intersection(Polygon(points + other_points).convex_hull).length
         else:
-            nn = NearestNeighbors(n_neighbors=1).fit(self.get_pc())
-            distances, _ = nn.kneighbors(other.get_pc())
+            nn = NearestNeighbors(n_neighbors=1).fit(self.pc)
+            distances, _ = nn.kneighbors(other.pc)
             res = np.min(distances)
         return res
 
     @torch.no_grad()
     def sample(self, n_samples, use_fps=False, max_fps_candidates: Optional[int] = None):
         """sub-sample its pointcloud and color"""
-        xyz = self.get_pc()
+        xyz = self.pc
         color = self.color
 
         n_points = len(self.points)
@@ -212,14 +198,14 @@ class ThreeDObject(object):
                 idx = fpsample.bucket_fps_kdline_sampling(xyz, n_samples, h=5)
 
             object_samples = {
-                "xyz": xyz[idx].copy(),
-                "color": color[idx].copy(),
+                "xyz": xyz[idx],
+                "color": color[idx],
             }
         else:
             idx = np.random.choice(n_points, n_samples, replace=n_points < n_samples)
             object_samples = {
-                "xyz": xyz[idx].copy(),
-                "color": color[idx].copy(),
+                "xyz": xyz[idx],
+                "color": color[idx],
             }
 
         return object_samples

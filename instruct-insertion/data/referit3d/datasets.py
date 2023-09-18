@@ -145,7 +145,7 @@ class ReferIt3DDataset(Dataset):
         # the max dist from the center point to the farthest point in the bbox
         tgt_box_max_dist_w_tgt = np.empty((len(context_w_tgt),))  # (# of objects,)
         for i, o in enumerate(context_w_tgt):
-            tmp = o.get_pc() @ rot_mat - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
+            tmp = o.pc @ rot_mat - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
             tgt_box_max_dist_w_tgt[i] = np.linalg.norm(tmp, axis=1, ord=2).max()
 
         if self.object_transformation is not None:

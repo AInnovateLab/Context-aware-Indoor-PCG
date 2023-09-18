@@ -1,3 +1,4 @@
+import functools
 import multiprocessing as mp
 import warnings
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
@@ -121,6 +122,7 @@ def normalize_pc(
     return segmented_objects
 
 
+@functools.cache
 def infer_floor_z_coord(scan: "ScannetScan", floor_label: str = "floor") -> float:
     """
     Infer the z-coordinate of the floor. If the "floor" exists, the maximum
@@ -139,10 +141,10 @@ def infer_floor_z_coord(scan: "ScannetScan", floor_label: str = "floor") -> floa
         if obj.instance_label == floor_label
     ]
     if len(floor_zs) > 0:
-        return sum(floor_zs) / len(floor_zs)
+        return float(sum(floor_zs) / len(floor_zs))
     else:
         # no floor found
-        return scan.pc[:, 2].min()
+        return float(scan.pc[:, 2].min())
 
 
 def check_numpy_to_torch(x):

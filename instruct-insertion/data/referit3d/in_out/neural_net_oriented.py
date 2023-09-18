@@ -95,7 +95,7 @@ def load_referential_data(
             "scan_id",
             "dataset",
             "target_id",
-            "utterance",
+            # "utterance",
             "stimulus_id",
             "utterance_generative",
         ]
