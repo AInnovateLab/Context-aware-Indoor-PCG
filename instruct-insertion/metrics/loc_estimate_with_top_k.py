@@ -35,10 +35,15 @@ class LocEstimateWithTopN(evaluate.Metric):
         assert predictions.shape[0] == references.shape[0]
         assert predictions.shape[2] == references.shape[1]
 
-        dist = np.linalg.norm(predictions[:, :, :3] - references[:, :3], ord=2, axis=2)
-        radius_diff = np.abs(predictions[:, :, 3] - references[:, 3])
+        dist = np.linalg.norm(
+            predictions[:, :, :3] - references[:, None, :3], ord=2, axis=2
+        )  # (n_samples, # of choices)
+        dist_min = dist.min(axis=1)  # (n_samples,)
+        radius_diff = np.abs(
+            predictions[:, :, 3] - references[:, None, 3]
+        )  # (n_samples, # of choices)
+        radius_diff_min = radius_diff.min(axis=1)  # (n_samples,)
         return {
-            "dist": float(dist.min()),
-            "radius_diff": float(radius_diff.min()),
-            "idx_of_min": int(np.argmin(dist)),
+            "dist": float(dist_min.mean()),
+            "radius_diff": float(radius_diff_min.mean()),
         }
