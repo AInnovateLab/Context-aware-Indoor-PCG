@@ -97,6 +97,7 @@ def start_training_loop_steps(
             dynamic_ncols=True,
             disable=not accelerator.is_main_process,
         ):
+            batch: Dict[str, Any]
             with accelerator.accumulate(MVT3DVG, point_e):
                 move_batch_to_device_(batch, device)
 
@@ -199,6 +200,7 @@ def evaluate_on_dataset(
     MVT3DVG = accelerator.unwrap_model(MVT3DVG)
 
     for batch in tqdm.tqdm(data_loader, disable=not accelerator.is_main_process):
+        batch: Dict[str, Any]
         move_batch_to_device_(batch, device)
         ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = MVT3DVG(batch)
 

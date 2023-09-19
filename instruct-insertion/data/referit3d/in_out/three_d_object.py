@@ -82,7 +82,7 @@ class ThreeDObject(object):
         bbox = self.get_axis_align_bbox()
         return bbox.extrema[5]
 
-    @methodtools.lru_cache
+    @methodtools.lru_cache()
     def get_axis_align_bbox(self):
         pc = self.pc
 
