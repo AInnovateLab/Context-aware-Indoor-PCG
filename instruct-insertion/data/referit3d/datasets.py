@@ -266,7 +266,7 @@ def make_data_loaders(
 
         batch["tokens"] = tokenizer.pad(
             tokens,
-            padding="longest",
+            padding="max_length",
             max_length=args.max_seq_len,
             pad_to_multiple_of=pad_to_multiple_of,
             return_attention_mask=True,

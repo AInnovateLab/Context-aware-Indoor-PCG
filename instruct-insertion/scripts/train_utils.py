@@ -100,10 +100,14 @@ def start_training_loop_steps(
             batch: Dict[str, Any]
             with accelerator.accumulate(MVT3DVG, point_e):
                 move_batch_to_device_(batch, device)
+                batch4mvt = batch.copy()
+                batch4mvt.pop("scan_id")
+                batch4mvt.pop("stimulus_id")
+                batch4mvt.pop("text")
 
                 # Forward pass
                 ctx_embeds, RF3D_LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = MVT3DVG(
-                    batch
+                    batch4mvt
                 )
 
                 # NOTE - This is the point_e part
@@ -202,7 +206,11 @@ def evaluate_on_dataset(
     for batch in tqdm.tqdm(data_loader, disable=not accelerator.is_main_process):
         batch: Dict[str, Any]
         move_batch_to_device_(batch, device)
-        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = MVT3DVG(batch)
+        batch4mvt = batch.copy()
+        batch4mvt.pop("scan_id")
+        batch4mvt.pop("stimulus_id")
+        batch4mvt.pop("text")
+        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = MVT3DVG(batch4mvt)
 
         ######################
         #                    #

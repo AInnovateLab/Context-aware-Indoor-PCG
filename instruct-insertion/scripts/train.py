@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import json
+import logging
 import operator
 import os.path as osp
 import pprint
@@ -38,6 +39,7 @@ from data.referit3d.in_out.neural_net_oriented import (
 # isort: split
 import evaluate
 import torch
+import torch._dynamo
 import train_utils
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import ProjectConfiguration, set_seed
@@ -97,6 +99,8 @@ def main():
     )
     # tracker setup
     accelerator.init_trackers(f"{args.project_name}_{project_time_str}", config=vars(args))
+    # torchdynamo setting
+    torch._dynamo.config.log_level = logging.ERROR
     # save log file only to main process
     init_logger(
         accelerator,
@@ -168,7 +172,6 @@ def main():
         mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
     else:
         assert False
-    mvt3dvg = mvt3dvg.to(device)
     logger.info(
         f"Model {args.mvt_model} architecture: {torchinfo.summary(mvt3dvg, verbose=0)}",
         main_process_only=True,
@@ -188,6 +191,10 @@ def main():
         if name in special_mod_names:
             special_mod_names.remove(name)
     assert len(special_mod_names) == 0, f"Special modules not found: {special_mod_names}"
+
+    if args.mode == "train":
+        mvt3dvg = torch.compile(mvt3dvg)
+    mvt3dvg = mvt3dvg.to(device)
 
     #######################
     #                     #
