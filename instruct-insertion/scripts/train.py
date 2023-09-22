@@ -231,7 +231,7 @@ def main():
 
     lr_scheduler = get_linear_scheduler(
         optimizer,
-        start_step=1_000 * accelerator.num_processes,
+        start_step=args.warmup_steps * accelerator.num_processes,
         end_step=args.global_training_steps * accelerator.num_processes,
         start_lr=args.init_lr,
         end_lr=args.min_lr,

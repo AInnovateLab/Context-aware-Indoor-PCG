@@ -145,6 +145,9 @@ def parse_arguments(notebook_options=None):
         help="Number of global training steps for single process, taking account for gradient accumulation. [default: 200_000] ",
     )
     parser.add_argument(
+        "--warmup-steps", type=int, default=1_000, help="number of warmup steps for the scheduler."
+    )
+    parser.add_argument(
         "--training-metric-interval",
         type=int,
         default=3_000,
