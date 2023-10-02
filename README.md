@@ -60,6 +60,12 @@ pip install trame==2.5 jupyter-server-proxy
 ```
 
 ## FAQ
+If you want to cauculate EMD, please run the following command:
+```shell
+cd instruct-insertion/openpoints/cpp/emd
+python setup.py install
+```
+
 
 If the following error occurs:
 ```
@@ -69,5 +75,14 @@ libstdc++.so.6: version `GLIBCXX_3.4.30' not found
 Then update the libstdc++ library in conda:
 ```shell
 conda install -c conda-forge libstdcxx-ng
-conda install -c conda-forge gcc=12
+conda install -c conda-forge gcc=11
+```
+
+If the following error occurs:
+```shell
+gxx_linux-64
+```
+Then please install the following:
+```shell
+conda install -c conda-forge gxx_linux-64=11.4
 ```
