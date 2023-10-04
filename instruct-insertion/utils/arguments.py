@@ -123,7 +123,7 @@ def parse_arguments(notebook_options=None):
         "--axis-norm",
         type=str2bool,
         default=False,
-        help="If True, enable axis-wise normalization.",
+        help="If True, enable axis-wise normalization. This option will also give the topk visualization ability to the model.",
     )
     parser.add_argument(
         "--axis-norm-bins",
