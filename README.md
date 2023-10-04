@@ -1,8 +1,10 @@
-# Instruct-Replacement
+# PISA: Point Cloud based Instructed Scene Augmentation
+
+## Install Openpoints
 
 Pull the repo with submodules:
 ```shell
-git clone --recurse-submodules git@github.com:MRTater/Instruct-Replacement.git
+git clone --recurse-submodules git@github.com:MRTater/PISA.git
 ```
 
 Update submodules if not included:
@@ -29,21 +31,27 @@ ln -s /media/data1/share/datasets/sr3d datasets/sr3d
 ## Setup
 Create environment:
 ```shell
-conda create -n instruct-insertion python=3.9
-conda activate instruct-insertion
+conda create -n pisa python=3.9
+conda activate pisa
 conda install -c conda-forge cudatoolkit-dev=11.7
 pip install -r requirements.txt
 ```
 
 Install chamfer: (TODO, remove this unnecessary dependency)
 ```shell
-cd instruct-insertion/openpoints/cpp/chamfer_dist
+cd PISA/openpoints/cpp/chamfer_dist
+python setup.py install
+```
+
+If you want to cauculate EMD, please run the following command:
+```shell
+cd PISA/openpoints/cpp/emd
 python setup.py install
 ```
 
 Next, install cpp extensions for pointnet:
 ```shell
-cd instruct-insertion/openpoints/cpp/pointnet2_batch
+cd PISA/openpoints/cpp/pointnet2_batch
 python setup.py install
 ```
 
@@ -60,11 +68,6 @@ pip install trame==2.5 jupyter-server-proxy
 ```
 
 ## FAQ
-If you want to cauculate EMD, please run the following command:
-```shell
-cd instruct-insertion/openpoints/cpp/emd
-python setup.py install
-```
 
 
 If the following error occurs:
