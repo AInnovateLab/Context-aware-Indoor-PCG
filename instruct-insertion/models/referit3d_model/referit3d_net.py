@@ -101,9 +101,6 @@ class ReferIt3DNet_transformer(nn.Module):
 
         self.bert_pretrain_path = args.bert_pretrain_path
 
-        self.view_number = args.view_number
-        self.rotate_number = args.rotate_number
-
         self.label_lang_sup = args.label_lang_sup
 
         self.encoder_layer_num = args.encoder_layer_num
@@ -115,11 +112,13 @@ class ReferIt3DNet_transformer(nn.Module):
         self.dropout_rate = args.dropout_rate
         self.lang_cls_alpha = args.lang_cls_alpha
         self.obj_cls_alpha = args.obj_cls_alpha
-        self.rel_pred_alpha = args.rel_pred_alpha
 
         self.class_name_tokens = class_name_tokens
 
         self.height_append: bool = args.height_append
+
+        self.axis_norm: bool = args.axis_norm
+        self.axis_norm_bins: int = args.axis_norm_bins
 
         self.obj_encoder = PointNextEncoder(
             in_channels=7,
@@ -152,15 +151,6 @@ class ReferIt3DNet_transformer(nn.Module):
         # freeze the embedding layer and first layer
         self.language_encoder.embeddings.requires_grad_(False)
         self.language_encoder.encoder.layer[0].requires_grad_(False)
-
-        self.offset: bool = args.offset_prediction
-        if self.offset:
-            self.offset_layer = MLP(
-                self.inner_dim,
-                [self.inner_dim, self.inner_dim, 3],
-                dropout_rate=self.dropout_rate,
-                norm_type=None,
-            )
 
         self.refer_encoder = nn.TransformerDecoder(
             torch.nn.TransformerDecoderLayer(
@@ -200,12 +190,32 @@ class ReferIt3DNet_transformer(nn.Module):
             nn.LayerNorm(self.inner_dim),
         )
 
-        self.box_layers = MLP(
-            self.inner_dim,
-            [self.inner_dim, self.inner_dim, 4],
-            dropout_rate=self.dropout_rate,
-            norm_type=None,
-        )
+        if not self.axis_norm:
+            self.box_layers = MLP(
+                self.inner_dim,
+                [self.inner_dim, self.inner_dim, 4],
+                dropout_rate=self.dropout_rate,
+                norm_type=None,
+            )
+        else:
+            self.axis_norm_xy_layers = MLP(
+                self.inner_dim,
+                [self.inner_dim, self.inner_dim, self.axis_norm_bins**2],
+                dropout_rate=self.dropout_rate,
+                norm_type=None,
+            )
+            self.axis_norm_z_layers = MLP(
+                self.inner_dim,
+                [self.inner_dim, self.inner_dim, self.axis_norm_bins],
+                dropout_rate=self.dropout_rate,
+                norm_type=None,
+            )
+            self.radius_layers = MLP(
+                self.inner_dim,
+                [self.inner_dim, self.inner_dim, 1],
+                dropout_rate=self.dropout_rate,
+                norm_type=None,
+            )
 
         self.locate_token = nn.Embedding(1, self.inner_dim)
 
@@ -215,88 +225,15 @@ class ReferIt3DNet_transformer(nn.Module):
         self.lang_logits_loss = nn.CrossEntropyLoss()
         self.class_logits_loss = nn.CrossEntropyLoss(ignore_index=ignore_index)
 
-    @torch.no_grad()
-    def aug_input(self, input_points, box_infos):
-        import warnings
-
-        warnings.warn("`aug_input` is deprecated.", DeprecationWarning)
-        input_points = input_points.float()
-        box_infos = box_infos.float()
-        device = input_points.device
-        xyz = input_points[:, :, :, :3]
-        bxyz = box_infos[:, :, :3]  # B,N,3
-        B, N, P = xyz.shape[:3]
-        V = self.view_number
-        rotate_theta_arr = torch.tensor(
-            [i * 2.0 * np.pi / self.rotate_number for i in range(self.rotate_number)],
-            device=device,
-        )
-        view_theta_arr = torch.tensor(
-            [i * 2.0 * np.pi / V for i in range(V)],
-            device=device,
-        )
-
-        # rotation
-        if self.training:
-            # theta = torch.rand(1) * 2 * np.pi  # random direction rotate aug
-            theta = rotate_theta_arr[
-                torch.randint(0, self.rotate_number, (B,))
-            ]  # 4 direction rotate aug
-            cos_theta = torch.cos(theta)
-            sin_theta = torch.sin(theta)
-            rotate_matrix = torch.tensor(
-                [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]], device=device
-            )[None].repeat(B, 1, 1)
-            rotate_matrix[:, 0, 0] = cos_theta
-            rotate_matrix[:, 0, 1] = -sin_theta
-            rotate_matrix[:, 1, 0] = sin_theta
-            rotate_matrix[:, 1, 1] = cos_theta
-
-            input_points[:, :, :, :3] = torch.matmul(
-                xyz.reshape(B, N * P, 3), rotate_matrix
-            ).reshape(B, N, P, 3)
-            bxyz = torch.matmul(bxyz.reshape(B, N, 3), rotate_matrix).reshape(B, N, 3)
-
-        # multi-view
-        bsize = box_infos[:, :, -1:]
-        boxs = []
-        for theta in view_theta_arr:
-            rotate_matrix = torch.tensor(
-                [
-                    [math.cos(theta), -math.sin(theta), 0.0],
-                    [math.sin(theta), math.cos(theta), 0.0],
-                    [0.0, 0.0, 1.0],
-                ],
-                device=device,
-            )
-            rxyz = torch.matmul(bxyz.reshape(B * N, 3), rotate_matrix).reshape(B, N, 3)
-            boxs.append(torch.cat([rxyz, bsize], dim=-1))
-        boxs = torch.stack(boxs, dim=1)
-        return input_points, boxs
-
-    def compute_loss(self, batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, AUX_LOGITS=None):
+    def compute_loss(self, batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOGITS=None, AUX_LOSS=None):
         # CLASS_LOGITS.transpose(2, 1) (B,C=525,D=52) <--> batch['class_labels'] (B,D)
         obj_clf_loss = self.class_logits_loss(CLASS_LOGITS.transpose(2, 1), batch["ctx_class"])
 
         # LANG_LOGITS (B, C=524) <--> batch['target_class'] (B,)
         lang_clf_loss = self.lang_logits_loss(LANG_LOGITS, batch["tgt_class"])
 
-        # center loss
-        # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
-        if self.offset:
-            locate_loss = (1.0 - self.rel_pred_alpha) * self.locate_loss(
-                LOCATE_PREDS[:, :3], batch["tgt_box_center"]
-            )
-        else:
-            locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
-
-        # radius loss
-        # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_max_dist'] (B,)
-        dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
-
         total_loss = (
-            locate_loss
-            + dist_loss
+            (AUX_LOSS or 0.0)
             + self.obj_cls_alpha * obj_clf_loss
             + self.lang_cls_alpha * lang_clf_loss
         )
@@ -309,18 +246,17 @@ class ReferIt3DNet_transformer(nn.Module):
         #    points/views augmentation    #
         #                                 #
         ###################################
-        # NOTE: stop multi view temporarily
-        # obj_points, boxs = self.aug_input(
-        #     batch["ctx_pc"],
-        #     torch.concat((batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1),
-        # )
         obj_points = batch["ctx_pc"].float()
-        boxs = torch.cat(
-            (batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1
-        ).float()  # (B, N, 4)
-        boxs = boxs[:, None].repeat(1, self.view_number, 1, 1)  # (B, V, N, 4)
+        if not self.axis_norm:
+            boxs = torch.cat(
+                (batch["ctx_box_center"], batch["ctx_box_max_dist"][:, :, None]), dim=-1
+            ).float()  # (B, N, 4)
+        else:
+            ctx_box_center_axis_norm = batch["ctx_box_center_axis_norm"]
+            boxs = torch.cat(
+                (ctx_box_center_axis_norm, batch["ctx_box_max_dist"][:, :, None]), dim=-1
+            ).float()  # (B, N, 4)
         B, N, P, D = obj_points.shape
-        V = self.view_number
 
         ######################
         #                    #
@@ -330,7 +266,7 @@ class ReferIt3DNet_transformer(nn.Module):
         obj_feats, CLASS_LOGITS = self.forward_obj_cls(obj_points)
 
         box_infos = self.box_feature_mapping(boxs)
-        obj_infos = obj_feats[:, None].repeat(1, V, 1, 1) + box_infos
+        obj_infos = obj_feats + box_infos  # (B, N, C)
 
         ###########################
         #                         #
@@ -350,34 +286,27 @@ class ReferIt3DNet_transformer(nn.Module):
         ############################
         # mask generation
         lang_mask: torch.BoolTensor = batch["tokens"]["attention_mask"] == 0  # (B, # of tokens)
-        lang_mask = lang_mask[:, None].repeat(1, V, 1).reshape(B * V, -1)  # (B * V, # of tokens)
         obj_mask: torch.BoolTensor = batch["ctx_key_padding_mask"]  # (B, N)
         # append first token mask
         obj_mask_w_tgt = torch.cat(
             [torch.zeros((B, 1), dtype=torch.bool, device=obj_mask.device), obj_mask], dim=1
         )  # (B, N+1)
-        obj_mask_w_tgt = obj_mask_w_tgt[:, None].repeat(1, V, 1).reshape(B * V, -1)  # (B * V, N+1)
 
         # feature prepare
-        cat_infos = obj_infos.reshape(B * V, -1, self.inner_dim)
+        cat_infos = obj_infos
         cat_infos = torch.cat(
-            [self.locate_token.weight[None].repeat(B * V, 1, 1), cat_infos], dim=1
-        )  # (B * V, N+1, C)
+            [self.locate_token.weight[None].repeat(B, 1, 1), cat_infos], dim=1
+        )  # (B, N+1, C)
 
-        mem_infos = (
-            lang_infos[:, None].repeat(1, V, 1, 1).reshape(B * V, -1, self.inner_dim)
-        )  # (B * V, # of tokens, C)
+        mem_infos = lang_infos  # (B, # of tokens, C)
         out_feats = self.refer_encoder(
             tgt=cat_infos,
             memory=mem_infos,
             tgt_key_padding_mask=obj_mask_w_tgt,
             memory_key_padding_mask=lang_mask,
-        ).reshape(
-            B, V, -1, self.inner_dim
-        )  # (B, V, N+1, C)
+        )  # (B, N+1, C)
 
-        out_feats = out_feats.mean(dim=1)  # (B, N+1, C)
-        ctx_embeds = out_feats[:, 0, :]  # (B, V, C)
+        ctx_embeds = out_feats[:, 0, :]  # (B, C)
 
         ######################
         #                    #
@@ -387,34 +316,87 @@ class ReferIt3DNet_transformer(nn.Module):
         # return the center point of box and box max distance
         # ctx_embeds: (B, C)
 
-        # directly predict the center point of box
-        LOCATE_PREDS = self.box_layers(ctx_embeds)  # (B, 4)
-
-        LOSS = self.compute_loss(batch, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS)
-
-        if self.offset:
-            # predict the offset
-            obj_mask_coef = (~obj_mask).float()  # (B, N)
-            coords = batch["ctx_box_center"]  # (B, N, 3)
-            offset_coords = self.offset_layer(out_feats[:, 1:, :])  # (B, N, 3)
-            pos_preds = coords + offset_coords
-            POS_PRED_LOSS = F.mse_loss(
-                pos_preds, batch["tgt_box_center"][:, None].repeat(1, N, 1), reduction="none"
-            )  # (B, N, 3)
-            POS_PRED_LOSS = POS_PRED_LOSS.mean(dim=-1) * obj_mask_coef  # (B, N)
-            POS_PRED_LOSS = POS_PRED_LOSS.sum(dim=-1) / obj_mask_coef.sum(dim=-1)  # (B,)
-            LOSS += self.rel_pred_alpha * POS_PRED_LOSS.mean()
-            # adjust the box center
-            mean_pos_preds = pos_preds * obj_mask_coef[:, :, None]  # (B, N, 3)
-            mean_pos_preds = mean_pos_preds.sum(dim=1) / obj_mask_coef.sum(dim=1)[:, None]  # (B, 3)
-            # NOTE: detach the LOCATE_PREDS to avoid the gradient back-propagation
-            LOCATE_PREDS = LOCATE_PREDS.detach().clone()
-            LOCATE_PREDS[:, :3] = (1.0 - self.rel_pred_alpha) * LOCATE_PREDS[:, :3] + (
-                self.rel_pred_alpha
-            ) * mean_pos_preds
+        if not self.axis_norm:
+            # directly predict the center point of box
+            LOCATE_PREDS = self.box_layers(ctx_embeds)  # (B, 4)
+            # center loss
+            # LOCATE_PREDS[:, :3] (B,3) <--> batch['tgt_box_center'] (B,3)
+            locate_loss = self.locate_loss(LOCATE_PREDS[:, :3], batch["tgt_box_center"])
+            # radius loss
+            # LOCATE_PREDS[:, -1] (B,) <--> batch['tgt_box_max_dist'] (B,)
+            dist_loss = self.radius_loss(LOCATE_PREDS[:, -1], batch["tgt_box_max_dist"])
+            LOSS = self.compute_loss(
+                batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOSS=locate_loss + dist_loss
+            )
+        else:
+            # predict the center point of box in axis norm space
+            (
+                tgt_box_center_axis_norm,  # (B, 3)
+                min_box_center_axis_norm,  # (B, 3)
+                max_box_center_axis_norm,  # (B, 3)
+            ) = (
+                batch["tgt_box_center_axis_norm"],
+                batch["min_box_center_before_axis_norm"],
+                batch["max_box_center_before_axis_norm"],
+            )  # all range from [-1, 1]
+            bins = (tgt_box_center_axis_norm + 1) / 2  # (B, 3), range from [0, 1]
+            bins = bins * self.axis_norm_bins  # (B, 3), range from [0, axis_norm_bins]
+            bins = bins.long().clamp(
+                0, self.axis_norm_bins - 1
+            )  # (B, 3), range from [0, axis_norm_bins-1]
+            # transform xy coord to xy bins
+            bins_xy = (
+                bins[:, 0] + bins[:, 1] * self.axis_norm_bins
+            )  # (B,), range from [0, axis_norm_bins^2 - 1], row-major or x-major
+            bins_z = bins[:, 2]  # (B,), range from [0, axis_norm_bins - 1]
+            # predict a bin using ctx
+            pred_xy = self.axis_norm_xy_layers(ctx_embeds)  # (B, axis_norm^2)
+            pred_z = self.axis_norm_z_layers(ctx_embeds)  # (B, axis_norm)
+            # compute loss
+            loss_xy = F.cross_entropy(pred_xy, bins_xy)
+            loss_z = F.cross_entropy(pred_z, bins_z)
+            loss_axis_norm = loss_xy + loss_z
+            # compute radius loss
+            pred_radius = self.radius_layers(ctx_embeds)  # (B, 1)
+            dist_loss = self.radius_loss(pred_radius[:, 0], batch["tgt_box_max_dist"])
+            # final loss
+            LOSS = self.compute_loss(
+                batch, CLASS_LOGITS, LANG_LOGITS, AUX_LOSS=loss_axis_norm + dist_loss
+            )
+            # restore the center point of box in original space
+            pred_bin_xy = pred_xy.argmax(dim=-1)  # (B,)
+            pred_bin_z = pred_z.argmax(dim=-1)  # (B,)
+            pred_bin_x = pred_bin_xy % self.axis_norm_bins  # (B,)
+            pred_bin_y = pred_bin_xy // self.axis_norm_bins  # (B,)
+            pred_bin = torch.stack((pred_bin_x, pred_bin_y, pred_bin_z), dim=-1)  # (B, 3)
+            pred_bin = pred_bin.float()  # (B, 3)
+            pred_bin = pred_bin + 0.5  # align to the center of bin
+            pred_bin = pred_bin / self.axis_norm_bins  # (B, 3), range from [0, 1]
+            LOCATE_PREDS = (
+                min_box_center_axis_norm
+                + (max_box_center_axis_norm - min_box_center_axis_norm) * pred_bin
+            )
+            LOCATE_PREDS = torch.cat([LOCATE_PREDS, pred_radius], dim=-1)  # (B, 4)
 
         # Returns: (B, C), (,), (B, N, # of classes), (B, C), (B, 4)
-        return ctx_embeds, LOSS, CLASS_LOGITS.detach(), LANG_LOGITS.detach(), LOCATE_PREDS.detach()
+        if self.axis_norm:
+            return (
+                ctx_embeds,
+                LOSS,
+                CLASS_LOGITS.detach(),
+                LANG_LOGITS.detach(),
+                LOCATE_PREDS.detach(),
+                (pred_xy, pred_z, pred_radius),
+            )
+        else:
+            return (
+                ctx_embeds,
+                LOSS,
+                CLASS_LOGITS.detach(),
+                LANG_LOGITS.detach(),
+                LOCATE_PREDS.detach(),
+                None,
+            )
 
     def forward_obj_cls(self, obj_points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """

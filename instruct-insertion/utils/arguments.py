@@ -119,6 +119,18 @@ def parse_arguments(notebook_options=None):
         default=False,
         help="If True, enable random rotation augmentation.",
     )
+    parser.add_argument(
+        "--axis-norm",
+        type=str2bool,
+        default=False,
+        help="If True, enable axis-wise normalization. This option will also give the topk visualization ability to the model.",
+    )
+    parser.add_argument(
+        "--axis-norm-bins",
+        type=int,
+        default=32,
+        help="Number of axis-wise bins to normalize to.",
+    )
 
     ############################
     #                          #
@@ -131,6 +143,9 @@ def parse_arguments(notebook_options=None):
         type=int,
         default=200_000,
         help="Number of global training steps for single process, taking account for gradient accumulation. [default: 200_000] ",
+    )
+    parser.add_argument(
+        "--warmup-steps", type=int, default=1_000, help="number of warmup steps for the scheduler."
     )
     parser.add_argument(
         "--training-metric-interval",
@@ -202,7 +217,6 @@ def parse_arguments(notebook_options=None):
         help="path to pretrained bert model. Check huggingface hub for more models.",
     )
 
-    parser.add_argument("--view-number", type=int, default=4)
     parser.add_argument("--rotate-number", type=int, default=4)
 
     parser.add_argument("--label-lang-sup", type=str2bool, default=True)
@@ -226,18 +240,6 @@ def parse_arguments(notebook_options=None):
         type=float,
         default=0.5,
         help="if > 0 a loss for guessing for each segmented" " object its class type is added.",
-    )
-    parser.add_argument(
-        "--offset-prediction",
-        type=str2bool,
-        default=False,
-        help="if True, predict the offset of the target object of the avg coords of all objects instead of directly predict the coords.",
-    )
-    parser.add_argument(
-        "--rel-pred-alpha",
-        type=float,
-        default=0.5,
-        help="relative prediction weight for loss and coordinated prediction. If set to 1.0, no direct prediction is performed.",
     )
 
     parser.add_argument("--point-e-model", type=str, default="base40M-textvec")

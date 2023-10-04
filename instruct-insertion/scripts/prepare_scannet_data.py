@@ -122,6 +122,8 @@ if __name__ == "__main__":
         exit(0)
     if args.n_processes == -1:
         n_processes = min(mp.cpu_count(), n_items)
+    else:
+        n_processes = min(args.n_processes, n_items)
 
     pool = mp.Pool(n_processes)
     chunks = int(n_items / n_processes)

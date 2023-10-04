@@ -95,7 +95,7 @@ def load_referential_data(
             "scan_id",
             "dataset",
             "target_id",
-            "utterance",
+            # "utterance",
             "stimulus_id",
             "utterance_generative",
         ]
@@ -111,9 +111,9 @@ def load_referential_data(
         logger.info("Adding Sr3D as augmentation.")
         sr3d = pd.read_csv(args.augment_with_sr3d)
         # NOTE: sr3d only takes training data
-        is_train = sr3d.scan_id.apply(lambda x: x in scans_split["train"])
-        sr3d["is_train"] = is_train
-        sr3d = sr3d[is_train]
+        for split_name, split_scan_ids in scans_split.items():
+            cond = sr3d.scan_id.apply(lambda x: x in split_scan_ids)
+            sr3d[f"is_{split_name}"] = cond
         sr3d = sr3d[referit_data.columns]
         logger.info(f"Dataset-size before augmentation: {len(referit_data)}")
         referit_data = pd.concat([referit_data, sr3d], axis=0)

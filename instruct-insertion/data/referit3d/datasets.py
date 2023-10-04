@@ -36,6 +36,7 @@ class ReferIt3DDataset(Dataset):
         fps: bool = False,
         max_fps_candidates: Optional[int] = None,
         random_rotation: bool = False,
+        axis_norm: bool = False,
     ):
         self.references = references
         self.scans = scans
@@ -48,6 +49,7 @@ class ReferIt3DDataset(Dataset):
         self.fps = fps
         self.max_fps_candidates = max_fps_candidates
         self.random_rotation = random_rotation
+        self.axis_norm = axis_norm
         self.object_transformation = object_transformation
         assert check_segmented_object_order(scans), "Objects are not ordered by object id"
 
@@ -126,10 +128,24 @@ class ReferIt3DDataset(Dataset):
         else:
             rot_mat = np.eye(3, dtype=np.float32)
 
+        if self.axis_norm:
+            # x,y,z axis norm for box center
+            # find each min/max of x,y,z axis first
+            min_xyz = samples_w_tgt[..., :3].reshape(-1, 3).min(axis=0, keepdims=True)
+            max_xyz = samples_w_tgt[..., :3].reshape(-1, 3).max(axis=0, keepdims=True)
+            # min_xyz = tgt_box_center_w_tgt.min(axis=0, keepdims=True)  # (1, 3)
+            # max_xyz = tgt_box_center_w_tgt.max(axis=0, keepdims=True)  # (1, 3)
+            edge_len_xyz = max_xyz - min_xyz  # (1, 3)
+            tgt_box_center_w_tgt_axis_norm = (
+                tgt_box_center_w_tgt - min_xyz
+            ) / edge_len_xyz  # (# of objects, 3)
+            # scale from [0, 1] to [-1, 1]
+            tgt_box_center_w_tgt_axis_norm = tgt_box_center_w_tgt_axis_norm * 2 - 1
+
         # the max dist from the center point to the farthest point in the bbox
         tgt_box_max_dist_w_tgt = np.empty((len(context_w_tgt),))  # (# of objects,)
         for i, o in enumerate(context_w_tgt):
-            tmp = o.get_pc() @ rot_mat - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
+            tmp = o.pc @ rot_mat - tgt_box_center_w_tgt[i][None, :]  # (# of points, 3)
             tgt_box_max_dist_w_tgt[i] = np.linalg.norm(tmp, axis=1, ord=2).max()
 
         if self.object_transformation is not None:
@@ -184,6 +200,16 @@ class ReferIt3DDataset(Dataset):
         res["tgt_box_center"] = tgt_box_center_w_tgt[0]  # (3,)
         res["tgt_box_max_dist"] = tgt_box_max_dist_w_tgt[0]  # scalar
 
+        if self.axis_norm:
+            res["min_box_center_before_axis_norm"] = min_xyz[0]  # (3,)
+            res["max_box_center_before_axis_norm"] = max_xyz[0]  # (3,)
+            res["ctx_box_center_axis_norm"] = np.pad(
+                tgt_box_center_w_tgt_axis_norm[1:],
+                ((0, self.max_context_objects - len(context)), (0, 0)),
+                constant_values=0,
+            )  # (# of objects, # of points, 6 or 7)
+            res["tgt_box_center_axis_norm"] = tgt_box_center_w_tgt_axis_norm[0]  # (3,)
+
         """
         Data format in batch:
         {
@@ -203,6 +229,11 @@ class ReferIt3DDataset(Dataset):
             "tgt_class": LongTensor, (B,),
             "tgt_box_center": FloatTensor, (B, 3),
             "tgt_box_max_dist": FloatTensor, (B,),
+            --- optional(axis-norm) ---
+            "min_box_center_before_axis_norm": FloatTensor, (B, 3),
+            "max_box_center_before_axis_norm": FloatTensor, (B, 3),
+            "ctx_box_center_axis_norm": FloatTensor, (B, # of context, 3),
+            "tgt_box_center_axis_norm": FloatTensor, (B, 3),
         }
         """
 
@@ -235,6 +266,7 @@ def make_data_loaders(
 
         batch["tokens"] = tokenizer.pad(
             tokens,
+            # padding="max_length",
             padding="longest",
             max_length=args.max_seq_len,
             pad_to_multiple_of=pad_to_multiple_of,
@@ -268,6 +300,7 @@ def make_data_loaders(
             fps=args.fps,
             max_fps_candidates=args.max_fps_candidates,
             random_rotation=is_training and args.random_rotation,
+            axis_norm=args.axis_norm,
         )
 
         data_loaders[split] = DataLoader(

@@ -1,9 +1,0 @@
-**__pycache__**
-**/build/**
-**egg-info**
-**/dist/**
-*.pyc
-*.idea/
-*.cache/
-*.vscode
-*.out

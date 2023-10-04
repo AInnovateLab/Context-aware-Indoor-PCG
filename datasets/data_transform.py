@@ -211,14 +211,18 @@ def main():
     logging.info(f"Used input tokens: {input_tokens_total}.")
     logging.info(f"Used output tokens: {output_tokens_total}.")
     if gpt_engine == "gpt-3.5-turbo":
-        logging.info(f"Estimated input cost: {input_tokens_total * USD_PER_GPT35_INPUT_TOKEN} USD.")
         logging.info(
-            f"Estimated output cost: {output_tokens_total * USD_PER_GPT35_OUTPUT_TOKEN} USD."
+            f"Estimated input cost: {input_tokens_total * USD_PER_GPT35_INPUT_TOKEN:.4f} USD."
+        )
+        logging.info(
+            f"Estimated output cost: {output_tokens_total * USD_PER_GPT35_OUTPUT_TOKEN:.4f} USD."
         )
     elif gpt_engine == "gpt-4":
-        logging.info(f"Estimated input cost: {input_tokens_total * USD_PER_GPT4_INPUT_TOKEN} USD.")
         logging.info(
-            f"Estimated output cost: {output_tokens_total * USD_PER_GPT4_INPUT_TOKEN} USD."
+            f"Estimated input cost: {input_tokens_total * USD_PER_GPT4_INPUT_TOKEN:.4f} USD."
+        )
+        logging.info(
+            f"Estimated output cost: {output_tokens_total * USD_PER_GPT4_INPUT_TOKEN:.4f} USD."
         )
     else:
         logging.error(f"Unknown GPT engine {gpt_engine}.")
