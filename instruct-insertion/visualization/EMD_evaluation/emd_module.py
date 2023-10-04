@@ -6,9 +6,18 @@ from openpoints.cpp.emd.emd import earth_mover_distance
 
 
 def emd_eval(prediction, references):
-    """
-    prediction: (N, 3)
-    references: (B, N, 3)
+    """Average EMD between prediction and references.
+
+    Args:
+        prediction (torch.Tensor): predicted point clouds of shape (P, 3).
+            Only x, y, z should be given.
+        references (torch.Tensor): reference point clouds of shape (B, P, 3).
+            Only x, y, z should be given.
+
+    Returns:
+        emd (torch.Tensor): intTensor of shape (1).
+        The average EMD between prediction and references.
+
     """
     d = 0
     emd = earth_mover_distance()
