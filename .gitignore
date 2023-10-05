@@ -183,3 +183,4 @@ instruct-insertion/visualization/libstdc++.so.6*
 *.png
 test*
 *.pkl
+*.tar.gz
