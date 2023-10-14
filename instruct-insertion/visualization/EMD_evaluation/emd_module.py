@@ -34,3 +34,5 @@ if __name__ == "__main__":
     pred = torch.randn(1024, 3).to("cuda")
     refs = torch.randn(10, 1024, 3).to("cuda")
     print(emd_eval(pred, refs))
+    pred = torch.cat((pred, pred), dim=0)
+    print(emd_eval(pred, refs))
