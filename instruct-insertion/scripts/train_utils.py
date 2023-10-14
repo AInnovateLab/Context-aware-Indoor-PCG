@@ -34,12 +34,13 @@ def move_batch_to_device_(batch: Dict[str, Any], device):
 def compute_metrics(metrics: Dict[str, evaluate.EvaluationModule]) -> Dict[str, Any]:
     ret = dict()
     for metric_name, metric in metrics.items():
-        metric_ret = metric.compute()
-        if isinstance(metric_ret, dict):
-            for k, v in metric_ret.items():
-                ret[f"{metric_name}_{k}"] = v
-        else:
-            ret[metric_name] = metric_ret
+        if metric is not None:
+            metric_ret = metric.compute()
+            if isinstance(metric_ret, dict):
+                for k, v in metric_ret.items():
+                    ret[f"{metric_name}_{k}"] = v
+            else:
+                ret[metric_name] = metric_ret
 
     return ret
 

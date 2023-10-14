@@ -278,7 +278,9 @@ def main():
         "checkpoint_steps": 0,
         "best_test_metric": None,
         "best_test_step": -1,
-        "best_test_metric_name": "test_rf3d_loc_estimate_with_top_k_dist",
+        "best_test_metric_name": "test_rf3d_loc_estimate_with_top_k_dist"
+        if args.axis_norm
+        else "test_rf3d_loc_estimate_dist",
         "best_test_metric_comp": operator.lt,
     }
 
@@ -320,7 +322,9 @@ def main():
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
                 experiment_id="test_rf3d_loc_estimate_with_top_k",
-            ),
+            )
+            if args.axis_norm
+            else None,
             "test_rf3d_cls": evaluate.load(
                 LOCAL_METRIC_PATHS["accuracy_with_ignore_label"],
                 process_id=accelerator.process_index,
