@@ -192,8 +192,7 @@ def main():
             special_mod_names.remove(name)
     assert len(special_mod_names) == 0, f"Special modules not found: {special_mod_names}"
 
-    if args.mode == "train":
-        mvt3dvg = torch.compile(mvt3dvg)
+    mvt3dvg = torch.compile(mvt3dvg)
     mvt3dvg = mvt3dvg.to(device)
 
     #######################
@@ -351,6 +350,15 @@ def main():
                 process_id=accelerator.process_index,
                 num_process=accelerator.num_processes,
                 experiment_id="test_point_e_pc_cls",
+                # NOTE - no ignored label here
+            ),
+            "test_point_e_pc_cls_top_k": evaluate.load(
+                LOCAL_METRIC_PATHS["accuracy_top_k_with_ignore_label"],
+                n_classes=n_classes + int(args.label_lang_sup),
+                topk=5,
+                process_id=accelerator.process_index,
+                num_process=accelerator.num_processes,
+                experiment_id="test_point_e_pc_cls_top_k",
                 # NOTE - no ignored label here
             ),
         }

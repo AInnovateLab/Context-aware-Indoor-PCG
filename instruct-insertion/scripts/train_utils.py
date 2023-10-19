@@ -406,3 +406,8 @@ def evaluate_on_dataset(
             predictions=TGT_CLASS_LOGITS.argmax(-1).flatten(),
             references=batch["tgt_class"],
         )
+
+        metrics_["test_point_e_pc_cls_top_k"].add_batch(
+            predictions=TGT_CLASS_LOGITS[:, 0].float(),  # (B, # of classes)
+            references=batch["tgt_class"],
+        )
