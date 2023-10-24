@@ -15,9 +15,24 @@ sys.path.append(os.path.join(os.getcwd(), ".."))
 accelerator = accelerate.Accelerator()
 device = accelerator.device
 
+import pickle
+
+with open("object_dict_testset.pkl", "rb") as f:
+    object_dict = pickle.load(f)
+print(object_dict[333].shape)
+quit()
+
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
 PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
+CHECKPOINT_DIR = osp.join(
+    PROJECT_DIR,
+    "checkpoints",
+    "2023-09-21_18-18-07",
+    "best-test_rf3d_loc_estimate_with_top_k_dist-1.1188-step-120000",
+)
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
+# CHECKPOINT_DIR = osp.join(PROJECT_DIR, "checkpoints", "2023-10-12_15-42-52", "best-test_rf3d_loc_estimate_dist-1.6379-step-96000")
 with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
     args = edict(json.load(f))
 
@@ -82,10 +97,9 @@ mvt3dvg = mvt3dvg.to(device).eval()
 point_e = point_e.to(device).eval()
 
 # load model and checkpoints
-if args.mode == "train":
-    mvt3dvg = torch.compile(mvt3dvg)
+# if args.mode == "train":
+mvt3dvg = torch.compile(mvt3dvg)
 mvt3dvg, point_e = accelerator.prepare(mvt3dvg, point_e)
-CHECKPOINT_DIR = osp.join(PROJECT_DIR, "checkpoints", "2023-09-21_18-18-07", "ckpt_240000")
 accelerator.load_state(CHECKPOINT_DIR)
 
 from models.point_e_model.diffusion.sampler import PointCloudSampler
@@ -109,40 +123,29 @@ import pickle
 
 from EMD_evaluation.emd_module import emd_eval
 
-# TODO - Download the object_dict to local disk
-
-# Read object_dict from local disk
-with open("object_dict_testset.pkl", "rb") as f:
-    object_dict = pickle.load(f)
-
 idx_has_been_used = []
 avg_emd_of_classes = {}
 num_of_obj_in_classes = {}
+cls_top1_correct_for_each_class = {}
+cls_top5_correct_for_each_class = {}
 
-# for i in range(2000):
-while len(idx_has_been_used) < 1000:
+# while len(idx_has_been_used) < 1000:
+# for i in range(4000):
+i = 0
+for batch in data_loaders["test"]:
+    i += 1
+    if i > 4000:
+        break
     from scripts.train_utils import move_batch_to_device_
 
-    # get random data
-    test_dataset = data_loaders["test"].dataset
-    rand_idx = np.random.randint(0, len(test_dataset))
-    if rand_idx not in idx_has_been_used:
-        idx_has_been_used.append(rand_idx)
-    else:
-        continue
-    rand_data = test_dataset[rand_idx]
-    rand_data_scan, rand_data_target_objs = test_dataset.get_reference_data(rand_idx)[:2]
-    rand_data_3d_objs = rand_data_scan.three_d_objects.copy()
-    rand_data_3d_objs.remove(rand_data_target_objs)
-    # rand_data["text"] = "Create a chair on the ground in the corner."
-    # rand_data["tokens"] = test_dataset.tokenizer(rand_data["text"], max_length=test_dataset.max_seq_len, truncation=True, padding=False)
-    collate_fn = data_loaders["test"].collate_fn
     # get batch
-    batch = collate_fn([rand_data])
     batch = move_batch_to_device_(batch, device)
-
+    batch4mvt = batch.copy()
+    batch4mvt.pop("scan_id")
+    batch4mvt.pop("stimulus_id")
+    batch4mvt.pop("text")
     with torch.no_grad():
-        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = mvt3dvg(batch)
+        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = mvt3dvg(batch4mvt)
 
         prompts = batch["text"]
         # stack twice for guided scale
@@ -156,67 +159,66 @@ while len(idx_has_been_used) < 1000:
         # get the last timestep prediction
         for last_pcs in samples_it:
             pass
-        last_pcs = last_pcs.permute(0, 2, 1)
+        pos = last_pcs[:, :3, :]
+        aux = last_pcs[:, 3:, :]
+        aux = aux.clamp_(0, 255).round_().div_(255.0)
 
-        # For axis_norm model
-        pred_xy, pred_z, pred_radius = pred_xyz
-        pred_xy_topk_bins = pred_xy.topk(5, dim=-1)[1]  # (B, 5)
-        pred_z_topk_bins = pred_z.topk(5, dim=-1)[1]  # (B, 5)
-        pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins  # (B, 5)
-        pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins  # (B, 5)
-        pred_bins = torch.stack(
-            (pred_x_topk_bins, pred_y_topk_bins, pred_z_topk_bins), dim=-1
-        )  # (B, 5, 3)
-        pred_bins = (pred_bins.float() + 0.5) / args.axis_norm_bins  # (B, 5, 3)
-        (
-            min_box_center_axis_norm,  # (B, 3)
-            max_box_center_axis_norm,  # (B, 3)
-        ) = (
-            batch["min_box_center_before_axis_norm"],
-            batch["max_box_center_before_axis_norm"],
-        )  # all range from [-1, 1]
-        pred_topk_xyz = (
-            min_box_center_axis_norm[:, None]
-            + (max_box_center_axis_norm - min_box_center_axis_norm)[:, None] * pred_bins
-        )  # (B, 5, 3)
-        pred_radius = pred_radius.unsqueeze(-1).permute(0, 2, 1).repeat(1, 5, 1)  # (B, 5, 1)
-        # pred_topk_xyz = torch.cat([pred_topk_xyz, pred_radius], dim=-1)  # (B, 5, 4)
-
-        # Choose this or the next block
-        # Choose which object position to visualize
-        # The object_idx should between 0 - 4
-        object_idx = 0
-
-        vis_pc = last_pcs.squeeze(0)  # (P, 6)
-
-        pos = vis_pc[:, :3]
-        aux = vis_pc[:, 3:]
-
-        pred_box_center, pred_box_max_dist = (
-            pred_topk_xyz[:, object_idx, :],
-            pred_radius[:, object_idx, :],
-        )
-
-        # Process the generated point cloud
-        coords = pos * pred_box_max_dist + pred_box_center
-        colors = aux.clamp(0, 255).round()  # (P, 3 or 4)
-        vis_pc = torch.cat((coords, colors), dim=-1)  # (P, 6)
-        vis_pc = vis_pc.unsqueeze(0)  # (1, P, 6)
-        vis_pc = vis_pc.cpu().numpy()
+        last_pcs = torch.cat((pos, aux), dim=1)
+        last_pcs = last_pcs.permute(0, 2, 1)  # (B, P, 6)
 
         # Compute the EMD
-        if batch["tgt_class"].item() not in avg_emd_of_classes:
-            avg_emd_of_classes[batch["tgt_class"].item()] = 0
-            num_of_obj_in_classes[batch["tgt_class"].item()] = 0
-        avg_emd_of_classes[batch["tgt_class"].item()] += emd_eval(
-            coords, object_dict[batch["tgt_class"].item()]
-        )
-        num_of_obj_in_classes[batch["tgt_class"].item()] += 1
+        for i in range(batch["tgt_class"].shape[0]):
+            ele = batch["tgt_class"][i].item()
+            if ele not in avg_emd_of_classes:
+                avg_emd_of_classes[ele] = 0
+                num_of_obj_in_classes[ele] = 0
+            avg_emd_of_classes[ele] += emd_eval(last_pcs[i, :, :3], object_dict[ele])
+            num_of_obj_in_classes[ele] += 1
+            print(avg_emd_of_classes[ele])
+        quit()
+
+        # Compute the cls
+        # NOTE - produce the `height append`
+        diff_pcs = last_pcs  # (B, P, 6)
+        if args.height_append:
+            tgt_pc_height = batch["tgt_pc"][:, :, -1:]  # (B, P, 1)
+            # avg height
+            tgt_pc_height = tgt_pc_height.mean(dim=1, keepdim=True).repeat(
+                1, diff_pcs.shape[1], 1
+            )  # (B, P, 1)
+            diff_pcs = torch.cat((diff_pcs, tgt_pc_height), dim=-1)  # (B, P, D=7)
+        _, TGT_CLASS_LOGITS = mvt3dvg.forward_obj_cls(diff_pcs[:, None, :, :])
+        # record the accuaracy
+        for i in range(batch["tgt_class"].shape[0]):
+            predictions = np.array(TGT_CLASS_LOGITS[i].topk(5)[1].flatten().cpu())
+            ele = batch["tgt_class"][i].item()
+            if ele not in cls_top1_correct_for_each_class:
+                cls_top1_correct_for_each_class[ele] = 0
+                cls_top5_correct_for_each_class[ele] = 0
+            if predictions[0] == ele:
+                cls_top1_correct_for_each_class[ele] += 1
+            if ele in predictions:
+                cls_top5_correct_for_each_class[ele] += 1
+quit()
+print("Done!")
+# total_emd = 0
+# for key, value in avg_emd_of_classes.items():
+#     total_emd += value
+# print(total_emd / 1000)
 
 for key, value in avg_emd_of_classes.items():
     avg_emd_of_classes[key] = value / num_of_obj_in_classes[key]
 
-with open("avg_emd_of_classes.pkl", "wb") as f:
+# create new folder to store the results
+tgt_folder = PROJECT_DIR.split("/")[-1]
+if not os.path.exists(PROJECT_DIR.split("/")[-1]):
+    os.mkdir(PROJECT_DIR.split("/")[-1])
+
+with open(tgt_folder + "/avg_emd_of_classes.pkl", "wb") as f:
     pickle.dump(avg_emd_of_classes, f)
-with open("num_of_obj_in_classes.pkl", "wb") as f:
+with open(tgt_folder + "/num_of_obj_in_classes.pkl", "wb") as f:
     pickle.dump(num_of_obj_in_classes, f)
+with open(tgt_folder + "/cls_top1_correct.pkl", "wb") as f:
+    pickle.dump(cls_top1_correct_for_each_class, f)
+with open(tgt_folder + "/cls_top5_correct.pkl", "wb") as f:
+    pickle.dump(cls_top5_correct_for_each_class, f)

@@ -36,3 +36,5 @@ if __name__ == "__main__":
     print(emd_eval(pred, refs))
     pred = torch.cat((pred, pred), dim=0)
     print(emd_eval(pred, refs))
+    pred2 = pred * 10
+    print(emd_eval(pred2, refs))
