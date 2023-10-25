@@ -11,6 +11,7 @@ from easydict import EasyDict as edict
 from termcolor import colored
 
 sys.path.append(os.path.join(os.getcwd(), ".."))
+from openpoints.cpp.emd.emd import earth_mover_distance
 
 accelerator = accelerate.Accelerator()
 device = accelerator.device
@@ -19,8 +20,12 @@ import pickle
 
 with open("object_dict_testset.pkl", "rb") as f:
     object_dict = pickle.load(f)
-print(object_dict[333].shape)
-quit()
+# {key: (B, P, 3)}
+all_obj_cls = []
+for key, value in object_dict.items():
+    for _ in range(value.shape[0]):
+        all_obj_cls.append(key)
+all_objects = torch.cat(list(object_dict.values()), dim=0)
 
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
@@ -121,21 +126,23 @@ sampler = PointCloudSampler(
 
 import pickle
 
-from EMD_evaluation.emd_module import emd_eval
+# from EMD_evaluation.emd_module import emd_eval
 
 idx_has_been_used = []
-avg_emd_of_classes = {}
+one_nn = {}
+one_nna = {}
 num_of_obj_in_classes = {}
 cls_top1_correct_for_each_class = {}
 cls_top5_correct_for_each_class = {}
 
-# while len(idx_has_been_used) < 1000:
-# for i in range(4000):
-i = 0
-for batch in data_loaders["test"]:
-    i += 1
-    if i > 4000:
-        break
+emd = earth_mover_distance()
+
+max_len = min(len(data_loaders["test"]), 4000)
+it = iter(data_loaders["test"])
+import tqdm
+
+for _ in tqdm.tqdm(range(max_len)):
+    batch = next(it)
     from scripts.train_utils import move_batch_to_device_
 
     # get batch
@@ -165,60 +172,77 @@ for batch in data_loaders["test"]:
 
         last_pcs = torch.cat((pos, aux), dim=1)
         last_pcs = last_pcs.permute(0, 2, 1)  # (B, P, 6)
+        coords = last_pcs[:, :, :3]
 
         # Compute the EMD
         for i in range(batch["tgt_class"].shape[0]):
             ele = batch["tgt_class"][i].item()
-            if ele not in avg_emd_of_classes:
-                avg_emd_of_classes[ele] = 0
+            if ele not in one_nn:
+                one_nn[ele] = []
+                one_nna[ele] = []
                 num_of_obj_in_classes[ele] = 0
-            avg_emd_of_classes[ele] += emd_eval(last_pcs[i, :, :3], object_dict[ele])
+
+            # Compute the emd for object and all objects of its class
+            one_nn_tmp = emd.forward(
+                coords[i : i + 1].repeat(object_dict[ele].shape[0], 1, 1).contiguous(),
+                object_dict[ele],
+            )
+            one_nn_tmp_v = one_nn_tmp.min()
+            one_nn[ele].append(one_nn_tmp_v)
+
+            # one_nna_tmp = torch.zeros(all_objects.shape[0], device=device)
+            # for j in range(all_objects.shape[0]):
+            #     one_nna_tmp[j] = (emd.forward(coords[i:i+1].contiguous(), all_objects[j:j+1]))
+            # cloest_class = all_obj_cls[one_nna_tmp.argmin()]
+            # one_nna[ele].append(cloest_class)
+
             num_of_obj_in_classes[ele] += 1
-            print(avg_emd_of_classes[ele])
-        quit()
+            # print(one_nn[ele])
 
-        # Compute the cls
-        # NOTE - produce the `height append`
-        diff_pcs = last_pcs  # (B, P, 6)
-        if args.height_append:
-            tgt_pc_height = batch["tgt_pc"][:, :, -1:]  # (B, P, 1)
-            # avg height
-            tgt_pc_height = tgt_pc_height.mean(dim=1, keepdim=True).repeat(
-                1, diff_pcs.shape[1], 1
-            )  # (B, P, 1)
-            diff_pcs = torch.cat((diff_pcs, tgt_pc_height), dim=-1)  # (B, P, D=7)
-        _, TGT_CLASS_LOGITS = mvt3dvg.forward_obj_cls(diff_pcs[:, None, :, :])
-        # record the accuaracy
-        for i in range(batch["tgt_class"].shape[0]):
-            predictions = np.array(TGT_CLASS_LOGITS[i].topk(5)[1].flatten().cpu())
-            ele = batch["tgt_class"][i].item()
-            if ele not in cls_top1_correct_for_each_class:
-                cls_top1_correct_for_each_class[ele] = 0
-                cls_top5_correct_for_each_class[ele] = 0
-            if predictions[0] == ele:
-                cls_top1_correct_for_each_class[ele] += 1
-            if ele in predictions:
-                cls_top5_correct_for_each_class[ele] += 1
-quit()
+        # # Compute the cls
+        # # NOTE - produce the `height append`
+        # diff_pcs = last_pcs  # (B, P, 6)
+        # if args.height_append:
+        #     tgt_pc_height = batch["tgt_pc"][:, :, -1:]  # (B, P, 1)
+        #     # avg height
+        #     tgt_pc_height = tgt_pc_height.mean(dim=1, keepdim=True).repeat(
+        #         1, diff_pcs.shape[1], 1
+        #     )  # (B, P, 1)
+        #     diff_pcs = torch.cat((diff_pcs, tgt_pc_height), dim=-1)  # (B, P, D=7)
+        # _, TGT_CLASS_LOGITS = mvt3dvg.forward_obj_cls(diff_pcs[:, None, :, :])
+        # # record the accuaracy
+        # for i in range(batch["tgt_class"].shape[0]):
+        #     predictions = np.array(TGT_CLASS_LOGITS[i].topk(5)[1].flatten().cpu())
+        #     ele = batch["tgt_class"][i].item()
+        #     if ele not in cls_top1_correct_for_each_class:
+        #         cls_top1_correct_for_each_class[ele] = 0
+        #         cls_top5_correct_for_each_class[ele] = 0
+        #     if predictions[0] == ele:
+        #         cls_top1_correct_for_each_class[ele] += 1
+        #     if ele in predictions:
+        #         cls_top5_correct_for_each_class[ele] += 1
 print("Done!")
-# total_emd = 0
-# for key, value in avg_emd_of_classes.items():
-#     total_emd += value
-# print(total_emd / 1000)
-
-for key, value in avg_emd_of_classes.items():
-    avg_emd_of_classes[key] = value / num_of_obj_in_classes[key]
 
 # create new folder to store the results
 tgt_folder = PROJECT_DIR.split("/")[-1]
 if not os.path.exists(PROJECT_DIR.split("/")[-1]):
     os.mkdir(PROJECT_DIR.split("/")[-1])
 
-with open(tgt_folder + "/avg_emd_of_classes.pkl", "wb") as f:
-    pickle.dump(avg_emd_of_classes, f)
-with open(tgt_folder + "/num_of_obj_in_classes.pkl", "wb") as f:
-    pickle.dump(num_of_obj_in_classes, f)
-with open(tgt_folder + "/cls_top1_correct.pkl", "wb") as f:
-    pickle.dump(cls_top1_correct_for_each_class, f)
-with open(tgt_folder + "/cls_top5_correct.pkl", "wb") as f:
-    pickle.dump(cls_top5_correct_for_each_class, f)
+# with open(tgt_folder + "/avg_emd_of_classes.pkl", "wb") as f:
+#     pickle.dump(one_nn, f)
+# with open(tgt_folder + "/num_of_obj_in_classes.pkl", "wb") as f:
+#     pickle.dump(num_of_obj_in_classes, f)
+# with open(tgt_folder + "/cls_top1_correct.pkl", "wb") as f:
+#     pickle.dump(cls_top1_correct_for_each_class, f)
+# with open(tgt_folder + "/cls_top5_correct.pkl", "wb") as f:
+#     pickle.dump(cls_top5_correct_for_each_class, f)
+all_data = {}
+all_data["one_nn"] = one_nn
+all_data["one_nna"] = one_nna
+all_data["num_of_obj_in_classes"] = num_of_obj_in_classes
+with open("all_data", "wb") as f:
+    pickle.dump(all_data, f)
+
+import im_remind
+
+im_remind.send_tg_msg("Done! Please check")
