@@ -29,7 +29,7 @@ all_objects = torch.cat(list(object_dict.values()), dim=0)
 
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
-PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
 CHECKPOINT_DIR = osp.join(
     PROJECT_DIR,
     "checkpoints",
@@ -126,11 +126,12 @@ sampler = PointCloudSampler(
 
 import pickle
 
-# from EMD_evaluation.emd_module import emd_eval
+from EMD_evaluation.emd_module import emd_eval
 
 idx_has_been_used = []
 one_nn = {}
 one_nna = {}
+emd = {}
 num_of_obj_in_classes = {}
 cls_top1_correct_for_each_class = {}
 cls_top5_correct_for_each_class = {}
@@ -180,24 +181,26 @@ for _ in tqdm.tqdm(range(max_len)):
             if ele not in one_nn:
                 one_nn[ele] = []
                 one_nna[ele] = []
+                emd[ele] = []
                 num_of_obj_in_classes[ele] = 0
 
-            # Compute the emd for object and all objects of its class
+            # Compute the 1-nn between the object and all objects of its class
             one_nn_tmp = emd.forward(
                 coords[i : i + 1].repeat(object_dict[ele].shape[0], 1, 1).contiguous(),
                 object_dict[ele],
-            )
+            )  # (1, len(object_dict))
             one_nn_tmp_v = one_nn_tmp.min()
             one_nn[ele].append(one_nn_tmp_v)
+
+            # Compute the emd between the object and all objects of its class
+            emd[ele].append(one_nn_tmp)
+            num_of_obj_in_classes[ele] += len(object_dict[ele])
 
             # one_nna_tmp = torch.zeros(all_objects.shape[0], device=device)
             # for j in range(all_objects.shape[0]):
             #     one_nna_tmp[j] = (emd.forward(coords[i:i+1].contiguous(), all_objects[j:j+1]))
             # cloest_class = all_obj_cls[one_nna_tmp.argmin()]
             # one_nna[ele].append(cloest_class)
-
-            num_of_obj_in_classes[ele] += 1
-            # print(one_nn[ele])
 
         # # Compute the cls
         # # NOTE - produce the `height append`
@@ -238,9 +241,10 @@ if not os.path.exists(PROJECT_DIR.split("/")[-1]):
 #     pickle.dump(cls_top5_correct_for_each_class, f)
 all_data = {}
 all_data["one_nn"] = one_nn
-all_data["one_nna"] = one_nna
+# all_data["one_nna"] = one_nna
+all_data["mmd_emd"] = emd
 all_data["num_of_obj_in_classes"] = num_of_obj_in_classes
-with open("all_data", "wb") as f:
+with open("all_data.pkl", "wb") as f:
     pickle.dump(all_data, f)
 
 import im_remind
