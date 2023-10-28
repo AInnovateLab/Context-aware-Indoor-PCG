@@ -96,7 +96,9 @@ class MLP(nn.Module):
 
 
 class ReferIt3DNet_transformer(nn.Module):
-    def __init__(self, args, n_obj_classes, class_name_tokens: BatchEncoding, ignore_index: int):
+    def __init__(
+        self, args, n_obj_classes: int, class_name_tokens: BatchEncoding, ignore_index: int
+    ):
         super().__init__()
 
         self.bert_pretrain_path = args.bert_pretrain_path
@@ -113,6 +115,7 @@ class ReferIt3DNet_transformer(nn.Module):
         self.lang_cls_alpha = args.lang_cls_alpha
         self.obj_cls_alpha = args.obj_cls_alpha
 
+        self.n_obj_classes = n_obj_classes
         self.class_name_tokens = class_name_tokens
 
         self.height_append: bool = args.height_append

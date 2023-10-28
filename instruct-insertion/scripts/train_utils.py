@@ -101,15 +101,30 @@ def start_training_loop_steps(
             batch: Dict[str, Any]
             with accelerator.accumulate(MVT3DVG, point_e):
                 move_batch_to_device_(batch, device)
+                B, N, C = len(batch["text"]), batch["ctx_pc"].shape[1], args.inner_dim
+                n_classes = MVT3DVG.n_obj_classes
                 batch4mvt = batch.copy()
                 batch4mvt.pop("scan_id")
                 batch4mvt.pop("stimulus_id")
                 batch4mvt.pop("text")
 
                 # Forward pass
-                ctx_embeds, RF3D_LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = MVT3DVG(
-                    batch4mvt
-                )
+                if not args.point_e_only:
+                    (
+                        ctx_embeds,
+                        RF3D_LOSS,
+                        CLASS_LOGITS,
+                        LANG_LOGITS,
+                        LOCATE_PREDS,
+                        pred_xyz,
+                    ) = MVT3DVG(batch4mvt)
+                else:
+                    ctx_embeds = torch.zeros((B, C), device=device)
+                    RF3D_LOSS = torch.zeros(1, device=device)
+                    CLASS_LOGITS = torch.zeros((B, N, n_classes), device=device)
+                    LANG_LOGITS = torch.zeros((B, C), device=device)
+                    LOCATE_PREDS = torch.zeros((B, 4), device=device)
+                    pred_xyz = None
 
                 # NOTE - This is the point_e part
                 # train diffusion
@@ -230,7 +245,11 @@ def evaluate_on_dataset(
         #########################
         prompts = batch["text"]
         # stack twice for guided scale
-        ctx_embeds = torch.cat((ctx_embeds, ctx_embeds), dim=0)
+        if not args.point_e_only:
+            ctx_embeds = torch.cat((ctx_embeds, ctx_embeds), dim=0)
+        else:
+            zs = torch.zeros_like(ctx_embeds)
+            ctx_embeds = torch.zeros((zs, zs), device=device)
         samples_it = sampler.sample_batch_progressive(
             batch_size=len(prompts),
             ctx_embeds=ctx_embeds,

@@ -172,6 +172,8 @@ def main():
         mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
     else:
         assert False
+    if args.point_e_only:
+        mvt3dvg.requires_grad_(False)
     logger.info(
         f"Model {args.mvt_model} architecture: {torchinfo.summary(mvt3dvg, verbose=0)}",
         main_process_only=True,
