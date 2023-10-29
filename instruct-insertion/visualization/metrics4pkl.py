@@ -228,9 +228,9 @@ def compute_jsd(
 
             objs_density = voxelize_desity(objs)
             refs_density = voxelize_desity(refs)
-            jsd = jensenshannon(objs_density.flatten(), refs_density.flatten())
+            jsd_sqrt = jensenshannon(objs_density.flatten(), refs_density.flatten())
 
-            results[class_str] = jsd
+            results[class_str] = jsd_sqrt**2
             pbar.update()
 
     return results
@@ -360,7 +360,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("-o", "--output", type=str, default="results.csv")
     parser.add_argument(
-        "-m", "--metrics", choices=["mmd-emd", "cov-emd", "1-nna-emd", "jsd"], nargs="+"
+        "-m", "--metrics", choices=["mmd-emd", "cov-emd", "1-nna-emd", "jsd", "acc"], nargs="+"
     )
     parser.add_argument("--force", action="store_true", help="overwrite the output file")
 
