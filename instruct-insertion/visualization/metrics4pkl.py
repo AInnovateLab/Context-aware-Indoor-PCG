@@ -367,10 +367,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if osp.exists(args.output):
-        if args.overwrite:
+        if args.force:
             warnings.warn(f"File {args.output} already exists. Overwriting.")
         else:
-            raise RuntimeError(f"File {args.output} already exists. Aborting.")
+            raise RuntimeError(
+                f"File {args.output} already exists. Aborting unless add '--force' option."
+            )
 
     # read the pkl file
     with open(args.pkl_file, "rb") as f:
@@ -422,7 +424,6 @@ if __name__ == "__main__":
     os.makedirs(osp.dirname(args.output), exist_ok=True)
     out_pd_dict = {"object class", list(class2idx.keys())}
     for metric, results in out.items():
-        # sort dict by the key of `results`
         assert list(results.keys()) == list(class2idx.keys())
         out_pd_dict[metric] = list(results.values())
     out_pd = pd.DataFrame.from_dict(out_pd_dict)
