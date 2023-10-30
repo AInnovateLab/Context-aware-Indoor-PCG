@@ -189,7 +189,7 @@ def compute_1nna_emd(
     return results
 
 
-def voxelize_desity(pcs: np.ndarray, grid: int = 28) -> np.ndarray:
+def voxelize_density(pcs: np.ndarray, grid: int = 28) -> np.ndarray:
     """
     Args:
         pcs: (N, P, 3): range from [-1, 1]
@@ -198,18 +198,18 @@ def voxelize_desity(pcs: np.ndarray, grid: int = 28) -> np.ndarray:
     Returns:
         (grid, grid, grid): density map in XYZ order
     """
-    ret = np.zeros((grid, grid, grid), dtype=np.float32)
+    ret = np.zeros((grid, grid, grid), dtype=np.int64)
     for pc in pcs:
+        # pc: (P, 3)
         pc = (pc + 1) / 2  # [0, 1]
-        pc_q = np.round(pc * grid).astype(np.int32)
+        pc_q = np.round(pc * grid).astype(np.int64)
         pc_q = np.clip(pc_q, 0, grid - 1)
-        tmp_voxel_grid = np.zeros((grid, grid, grid), dtype=np.float32)
-        tmp_voxel_grid[pc_q[:, 0], pc_q[:, 1], pc_q[:, 2]] = 1
-        ret += tmp_voxel_grid
+        for point in pc_q:
+            ret[point[0], point[1], point[2]] += 1
 
     # norm
-    ret /= ret.sum()
-    return ret
+    ret = ret.astype(np.float64) / ret.sum()
+    return ret.astype(np.float32)
 
 
 def compute_jsd(
@@ -230,8 +230,8 @@ def compute_jsd(
             objs: np.ndarray = np.stack(objs, axis=0)[..., :3]  # (*, P, 3)
             refs: np.ndarray = np.stack(refs, axis=0)[..., :3]  # (*, P, 3)
 
-            objs_density = voxelize_desity(objs)
-            refs_density = voxelize_desity(refs)
+            objs_density = voxelize_density(objs)
+            refs_density = voxelize_density(refs)
             jsd_sqrt = jensenshannon(objs_density.flatten(), refs_density.flatten())
 
             results[class_str] = jsd_sqrt**2
