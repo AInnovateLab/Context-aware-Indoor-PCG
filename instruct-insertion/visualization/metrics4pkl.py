@@ -54,8 +54,10 @@ def one2many_emd(one: torch.Tensor, many: torch.Tensor, batch_size: int) -> torc
         many_batch = many[sidx:eidx].contiguous()
         one_batch = one.repeat(eidx - sidx, 1, 1).contiguous()
         emd = EarthMoverDistanceFunction.apply(many_batch, one_batch)  # (batch_size,)
+        emd /= one.size(1)
         ret.append(emd)
     ret = torch.cat(ret, dim=0)
+    return ret
 
 
 @torch.no_grad()
@@ -88,7 +90,7 @@ def compute_mmd_emd(
             # compute the MMD-EMD
             mmd_sum = torch.zeros((), device=device)
             for ref in refs:
-                ref = ref.unsqueeze(0)  # (1, P, 6)
+                # ref: (P, 6)
                 mmd = one2many_emd(ref, objs, batch_size)  # (N,)
                 mmd_sum += mmd.min()
                 pbar.update()
@@ -130,7 +132,7 @@ def compute_cov_emd(
             # compute the MMD-EMD
             cov_idx_set = set()
             for obj in objs:
-                obj = obj.unsqueeze(0)  # (1, P, 6)
+                # obj: (P, 6)
                 cov = one2many_emd(obj, refs, batch_size)  # (N,)
                 cov_idx_set.add(cov.argmin().item())
                 pbar.update()
@@ -150,7 +152,8 @@ def compute_1nna_emd(
     if not torch.cuda.is_available():
         raise RuntimeError("EMD computation requires CUDA.")
     device = torch.device("cuda")
-    with tqdm(total=len(obj_pkl_data), desc="1-NNA-EMD") as pbar:
+    total = len(obj_pkl_data) * 2
+    with tqdm(total=total, desc="1-NNA-EMD") as pbar:
         # iterate each class
         for class_str, class_int in class2idx.items():
             # find all objects of this class
@@ -172,6 +175,7 @@ def compute_1nna_emd(
             # compute the 1NNA-EMD
             hit_count = 0
             for all_idx, item in enumerate(alls):
+                # item: (P, 6)
                 emd = one2many_emd(item, alls, batch_size)  # (2*,)
                 nn_idx = emd.topk(2, dim=0, largest=False)[1][1].item()
                 if all_idx < half_num and nn_idx < half_num:
@@ -239,7 +243,7 @@ def compute_jsd(
 @torch.no_grad()
 def compute_acc(
     obj_pkl_data: dict[str, object], class2idx: dict[str, int]
-) -> tuple(dict[str, float], dict[str, float]):
+) -> tuple[dict[str, float], dict[str, float]]:
     import json
 
     import accelerate
@@ -343,10 +347,10 @@ def compute_acc(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("pkl_file", type=str)
+    parser.add_argument("-i", "--pkl-file", type=str, help="input pickle file")
     parser.add_argument(
         "-s",
-        "--sample",
+        "--n-sample",
         type=int,
         default=1,
         help="number of samples in generated objs to compute. [Default: 1]",
@@ -358,7 +362,7 @@ if __name__ == "__main__":
         default=32,
         help="batch size for computing metrics. [Default: 32]",
     )
-    parser.add_argument("-o", "--output", type=str, default="results.csv")
+    parser.add_argument("-o", "--output", type=str, default=osp.join(osp.curdir, "results.csv"))
     parser.add_argument(
         "-m", "--metrics", choices=["mmd-emd", "cov-emd", "1-nna-emd", "jsd", "acc"], nargs="+"
     )
@@ -373,6 +377,9 @@ if __name__ == "__main__":
             raise RuntimeError(
                 f"File {args.output} already exists. Aborting unless add '--force' option."
             )
+
+    if not args.metrics:
+        raise argparse.ArgumentError(None, "Please specify at least one metric to '-m'.")
 
     # read the pkl file
     with open(args.pkl_file, "rb") as f:
@@ -419,10 +426,11 @@ if __name__ == "__main__":
                 out["acc1"], out["acc5"] = compute_acc(obj_pkl_data)
         except Exception as e:
             warnings.warn(f"Failed to compute {metric}. {e}")
+            raise e
 
     # write to csv
     os.makedirs(osp.dirname(args.output), exist_ok=True)
-    out_pd_dict = {"object class", list(class2idx.keys())}
+    out_pd_dict = {"object class": list(class2idx.keys())}
     for metric, results in out.items():
         assert list(results.keys()) == list(class2idx.keys())
         out_pd_dict[metric] = list(results.values())

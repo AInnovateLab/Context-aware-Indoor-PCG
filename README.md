@@ -81,7 +81,7 @@ conda install -c conda-forge libstdcxx-ng
 conda install -c conda-forge gcc=11
 ```
 
-If the following error occurs:
+If the following error occurs, especially when installing `emd_cuda`:
 ```shell
 gxx_linux-64
 ```
