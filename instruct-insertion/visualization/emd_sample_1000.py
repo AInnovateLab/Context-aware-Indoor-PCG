@@ -1,43 +1,69 @@
 import json
 import os
 import os.path as osp
+import pickle
 import sys
 
 import accelerate
 import numpy as np
 import pyvista as pv
 import torch
+import tqdm
 from easydict import EasyDict as edict
 from termcolor import colored
 
 sys.path.append(os.path.join(os.getcwd(), ".."))
 from openpoints.cpp.emd.emd import earth_mover_distance
+from scripts.train_utils import move_batch_to_device_
 
 accelerator = accelerate.Accelerator()
 device = accelerator.device
 
-import pickle
-
-with open("object_dict_testset.pkl", "rb") as f:
-    object_dict = pickle.load(f)
-# {key: (B, P, 3)}
-all_obj_cls = []
-for key, value in object_dict.items():
-    for _ in range(value.shape[0]):
-        all_obj_cls.append(key)
-all_objects = torch.cat(list(object_dict.values()), dim=0)
-
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
-PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-09-21_18-18-07",
+#     "ckpt_800000",
+# )
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-09-18_14-52-06",
+#     "best-test_rf3d_loc_estimate_with_top_k_dist-1.0615-step-24000",
+# )
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-09-16_16-54-54",
+#     "best-test_point_e_pc_cls_accuracy-0.4229-step-128000",
+# )
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-10-12_15-42-52",
+#     "best-test_rf3d_loc_estimate_dist-1.6379-step-96000",
+# )
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "baseline")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-10-21_14-18-59",
+#     "best-test_rf3d_loc_estimate_dist-1.6604-step-144000",
+# )
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "point_e_only")
 CHECKPOINT_DIR = osp.join(
     PROJECT_DIR,
     "checkpoints",
-    "2023-09-21_18-18-07",
-    "best-test_rf3d_loc_estimate_with_top_k_dist-1.1188-step-120000",
+    "2023-10-25_16-29-07",
+    "best-test_rf3d_loc_estimate_with_top_k_dist-1.9620-step-240000",
 )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
-# CHECKPOINT_DIR = osp.join(PROJECT_DIR, "checkpoints", "2023-10-12_15-42-52", "best-test_rf3d_loc_estimate_dist-1.6379-step-96000")
+
 with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
     args = edict(json.load(f))
 
@@ -50,12 +76,22 @@ from data.referit3d.in_out.neural_net_oriented import (
 
 # load data
 SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
+# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
 REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
 all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(SCANNET_PKL_FILE)
 referit_data = load_referential_data(args, args.referit3D_file, scans_split)
 # Prepare data & compute auxiliary meta-information.
 all_scans_in_dict = trim_scans_per_referit3d_data_(referit_data, all_scans_in_dict)
 mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
+
+with open("sr3d_object_dict_testset.pkl", "rb") as f:
+    object_dict = pickle.load(f)
+# {key: (B, P, 3)}
+all_obj_cls = []
+for key, value in object_dict.items():
+    for _ in range(value.shape[0]):
+        all_obj_cls.append(key)
+all_objects = torch.cat(list(object_dict.values()), dim=0)
 
 from transformers import BertTokenizer
 
@@ -126,12 +162,12 @@ sampler = PointCloudSampler(
 
 import pickle
 
-from EMD_evaluation.emd_module import emd_eval
+# from EMD_evaluation.emd_module import emd_eval
 
 idx_has_been_used = []
 one_nn = {}
 one_nna = {}
-emd = {}
+emd_dis = {}
 num_of_obj_in_classes = {}
 cls_top1_correct_for_each_class = {}
 cls_top5_correct_for_each_class = {}
@@ -140,67 +176,102 @@ emd = earth_mover_distance()
 
 max_len = min(len(data_loaders["test"]), 4000)
 it = iter(data_loaders["test"])
-import tqdm
+# Reverse to get idx_to_class
+idx_to_class = {v: k for k, v in class_to_idx.items()}
 
+objs = (
+    []
+)  # [{prompt:"", "objs": list of numpy, "ref": numpy, "stimulus_id": str, "class": int, "class_str": str, },]
 for _ in tqdm.tqdm(range(max_len)):
     batch = next(it)
-    from scripts.train_utils import move_batch_to_device_
 
     # get batch
     batch = move_batch_to_device_(batch, device)
+    B, N, C = len(batch["text"]), batch["ctx_pc"].shape[1], args.inner_dim
     batch4mvt = batch.copy()
     batch4mvt.pop("scan_id")
     batch4mvt.pop("stimulus_id")
     batch4mvt.pop("text")
     with torch.no_grad():
-        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = mvt3dvg(batch4mvt)
-
-        prompts = batch["text"]
+        if not args.point_e_only:
+            ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = mvt3dvg(batch4mvt)
+        else:
+            ctx_embeds = torch.zeros((B, C), device=device)
+            RF3D_LOSS = torch.zeros(1, device=device)
+            CLASS_LOGITS = torch.zeros((B, N, n_classes), device=device)
+            LANG_LOGITS = torch.zeros((B, C), device=device)
+            LOCATE_PREDS = torch.zeros((B, 4), device=device)
+            pred_xyz = None
         # stack twice for guided scale
         ctx_embeds = torch.cat((ctx_embeds, ctx_embeds), dim=0)
-        samples_it = sampler.sample_batch_progressive(
-            batch_size=len(prompts),
-            ctx_embeds=ctx_embeds,
-            model_kwargs=dict(texts=prompts),
-            accelerator=accelerator,
-        )
-        # get the last timestep prediction
-        for last_pcs in samples_it:
-            pass
-        pos = last_pcs[:, :3, :]
-        aux = last_pcs[:, 3:, :]
-        aux = aux.clamp_(0, 255).round_().div_(255.0)
 
-        last_pcs = torch.cat((pos, aux), dim=1)
-        last_pcs = last_pcs.permute(0, 2, 1)  # (B, P, 6)
-        coords = last_pcs[:, :, :3]
+        prompts = batch["text"]
+        # obj = {"prompt":"", "objs": [], "ref": numpy, "stimulus_id": str, "class": int, "class_str": str, }
+
+        generated_objs = []
+        for i in range(3):
+            samples_it = sampler.sample_batch_progressive(
+                batch_size=B,
+                ctx_embeds=ctx_embeds,
+                model_kwargs=dict(texts=prompts),
+                accelerator=accelerator,
+            )
+            # get the last timestep prediction
+            for last_pcs in samples_it:
+                pass
+            pos = last_pcs[:, :3, :]
+            aux = last_pcs[:, 3:, :]
+            aux = aux.clamp_(0, 255).round_().div_(255.0)
+
+            last_pcs = torch.cat((pos, aux), dim=1)
+            last_pcs = last_pcs.permute(0, 2, 1)  # (B, P, 6)
+            # coords = last_pcs[:, :, :3]
+            generated_objs.append(last_pcs.cpu().numpy())
+
+        # put data into obj
+        # objs_tmp = []
+        for j in range(batch["tgt_class"].shape[0]):
+            obj = {}
+            obj["prompt"] = batch["text"][j]
+            obj["objs"] = []
+            for generated_obj in generated_objs:
+                # objs_tmp.append(generated_obj[j])
+                obj["objs"].append(generated_obj[j])
+            obj["ref"] = batch["tgt_pc"][j].cpu().numpy()
+            obj["stimulus_id"] = batch["stimulus_id"][j]
+            obj["class"] = batch["tgt_class"][j].item()
+            obj["class_str"] = idx_to_class[obj["class"]]
+            objs.append(obj)
+        # print(objs)
+        # print(objs[0]["objs"])
+        # break
 
         # Compute the EMD
-        for i in range(batch["tgt_class"].shape[0]):
-            ele = batch["tgt_class"][i].item()
-            if ele not in one_nn:
-                one_nn[ele] = []
-                one_nna[ele] = []
-                emd[ele] = []
-                num_of_obj_in_classes[ele] = 0
+        # for i in range(batch["tgt_class"].shape[0]):
+        #     ele = batch["tgt_class"][i].item()
+        #     if ele not in one_nn:
+        #         one_nn[ele] = []
+        #         one_nna[ele] = []
+        #         emd_dis[ele] = []
+        #         num_of_obj_in_classes[ele] = 0
 
-            # Compute the 1-nn between the object and all objects of its class
-            one_nn_tmp = emd.forward(
-                coords[i : i + 1].repeat(object_dict[ele].shape[0], 1, 1).contiguous(),
-                object_dict[ele],
-            )  # (1, len(object_dict))
-            one_nn_tmp_v = one_nn_tmp.min()
-            one_nn[ele].append(one_nn_tmp_v)
+        #     # Compute the 1-nn between the object and all objects of its class
+        #     one_nn_tmp = emd.forward(
+        #         coords[i : i + 1].repeat(object_dict[ele].shape[0], 1, 1).contiguous(),
+        #         object_dict[ele],
+        #     )  # (1, len(object_dict))
+        #     one_nn_tmp_v = one_nn_tmp.min()
+        #     one_nn[ele].append(one_nn_tmp_v)
 
-            # Compute the emd between the object and all objects of its class
-            emd[ele].append(one_nn_tmp)
-            num_of_obj_in_classes[ele] += len(object_dict[ele])
+        #     # Compute the emd between the object and all objects of its class
+        #     emd_dis[ele].append(one_nn_tmp)
+        #     num_of_obj_in_classes[ele] += len(object_dict[ele])
 
-            # one_nna_tmp = torch.zeros(all_objects.shape[0], device=device)
-            # for j in range(all_objects.shape[0]):
-            #     one_nna_tmp[j] = (emd.forward(coords[i:i+1].contiguous(), all_objects[j:j+1]))
-            # cloest_class = all_obj_cls[one_nna_tmp.argmin()]
-            # one_nna[ele].append(cloest_class)
+        # one_nna_tmp = torch.zeros(all_objects.shape[0], device=device)
+        # for j in range(all_objects.shape[0]):
+        #     one_nna_tmp[j] = (emd.forward(coords[i:i+1].contiguous(), all_objects[j:j+1]))
+        # cloest_class = all_obj_cls[one_nna_tmp.argmin()]
+        # one_nna[ele].append(cloest_class)
 
         # # Compute the cls
         # # NOTE - produce the `height append`
@@ -224,13 +295,19 @@ for _ in tqdm.tqdm(range(max_len)):
         #         cls_top1_correct_for_each_class[ele] += 1
         #     if ele in predictions:
         #         cls_top5_correct_for_each_class[ele] += 1
+    # break
 print("Done!")
 
 # create new folder to store the results
 tgt_folder = PROJECT_DIR.split("/")[-1]
-if not os.path.exists(PROJECT_DIR.split("/")[-1]):
-    os.mkdir(PROJECT_DIR.split("/")[-1])
+tgt_folder = os.path.join("/home/lyy/workspace/Instruct-Replacement/tmp_lyy_saves", tgt_folder)
+print("Result save to", tgt_folder)
+if not os.path.exists(tgt_folder):
+    os.makedirs(tgt_folder)
 
+with open(os.path.join(tgt_folder, "objs.pkl"), "wb") as f:
+    pickle.dump(objs, f)
+print("Save success!")
 # with open(tgt_folder + "/avg_emd_of_classes.pkl", "wb") as f:
 #     pickle.dump(one_nn, f)
 # with open(tgt_folder + "/num_of_obj_in_classes.pkl", "wb") as f:
@@ -239,13 +316,14 @@ if not os.path.exists(PROJECT_DIR.split("/")[-1]):
 #     pickle.dump(cls_top1_correct_for_each_class, f)
 # with open(tgt_folder + "/cls_top5_correct.pkl", "wb") as f:
 #     pickle.dump(cls_top5_correct_for_each_class, f)
-all_data = {}
-all_data["one_nn"] = one_nn
+# all_data = {}
+# all_data["one_nn"] = one_nn
 # all_data["one_nna"] = one_nna
-all_data["mmd_emd"] = emd
-all_data["num_of_obj_in_classes"] = num_of_obj_in_classes
-with open("all_data.pkl", "wb") as f:
-    pickle.dump(all_data, f)
+# all_data["mmd_emd"] = emd_dis
+# all_data["num_of_obj_in_classes"] = num_of_obj_in_classes
+# with open(tgt_folder + "/all_data.pkl", "wb") as f:
+# pickle.dump(all_data, f)
+
 
 import im_remind
 

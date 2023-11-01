@@ -37,6 +37,12 @@ for key, value in cls_top5_correct.items():
 with open(os.path.join(target_folder, "num_of_obj_in_classes.pkl"), "rb") as f:
     num_of_obj_in_classes = pickle.load(f)
 
+with open(os.path.join(target_folder + "(2)", "avg_emd_of_classes.pkl"), "rb") as f:
+    avg_emd_of_classes = pickle.load(f)
+
+for key, value in avg_emd_of_classes.items():
+    avg_emd_of_classes[key] = value.cpu().numpy()
+
 idx_to_class = {v: k for k, v in class_to_idx.items()}
 one_nn = {}
 one_nna = {}
@@ -47,7 +53,8 @@ for key, value in all_data.items():
                 f"{idx_to_class[k]}" + f"({train_data_percentage[idx_to_class[k]] * 100:.2f}\\%)"
             )
             one_nn[new_key] = [
-                round(min(v).item(), 3),
+                str("%.3f" % (min(v).item() * 10)),
+                str("%.3f" % (avg_emd_of_classes[k] * 10)),
                 str("%.2f" % (cls_top1_correct[k] / num_of_obj_in_classes[k] * 100)),
                 str("%.2f" % (cls_top5_correct[k] / num_of_obj_in_classes[k] * 100)),
             ]
@@ -61,6 +68,5 @@ def real_key(kv):
 key = lambda kv: train_data_percentage[real_key(kv)]
 one_nn = dict(sorted(one_nn.items(), key=key, reverse=True))
 
-
-pd.DataFrame.from_dict(one_nn, orient="index").to_csv("one_nn.csv")
+pd.DataFrame.from_dict(one_nn, orient="index").to_csv(os.path.join(target_folder, "one_nn.csv"))
 # pd.DataFrame.from_dict(one_nna, orient="index").to_csv("one_nna.csv")
