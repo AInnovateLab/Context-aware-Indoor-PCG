@@ -3,6 +3,7 @@ import os
 import os.path as osp
 import pickle
 import sys
+import traceback
 import warnings
 from functools import partial
 
@@ -61,11 +62,57 @@ def one2many_emd(one: torch.Tensor, many: torch.Tensor, batch_size: int) -> torc
 
 
 @torch.no_grad()
+def precompute_emds(
+    obj_pkl_data: dict[str, object],
+    class2idx: dict[str, int],
+    sample_idx: int,
+    batch_size: int,
+) -> dict[str, torch.Tensor]:
+    """Precompute the EMDs for each object in the dataset.
+
+    Returns:
+        dict[class_str, torch.Tensor]: (objs_len + refs_len, refs_len + objs_len)
+    """
+    results: dict[str, float] = {}
+    if not torch.cuda.is_available():
+        raise RuntimeError("EMD computation requires CUDA.")
+    device = torch.device("cuda")
+    with tqdm(total=len(obj_pkl_data) * 2, desc="PRE-EMDS") as pbar:
+        for class_str, class_int in class2idx.items():
+            # find all objects of this class
+            objs, refs = [], []
+            for datum in obj_pkl_data:
+                if datum["class"] == class_int:
+                    objs.append(datum["objs"][sample_idx])
+                    refs.append(datum["ref"])
+            objs: np.ndarray = np.stack(objs, axis=0)[..., :3]  # (*, P, 3)
+            refs: np.ndarray = np.stack(refs, axis=0)[..., :3]  # (*, P, 3)
+            objs_len = len(objs)
+            refs_len = len(refs)
+            # move to torch
+            objs: torch.Tensor = torch.from_numpy(objs).to(device=device)
+            refs: torch.Tensor = torch.from_numpy(refs).to(device=device)
+            objs_refs = torch.cat((objs, refs), dim=0).contiguous()  # (objs_len + refs_len, P, 3)
+            refs_objs = torch.cat((refs, objs), dim=0).contiguous()  # (refs_len + objs_len, P, 3)
+
+            t = torch.zeros((objs_len + refs_len, refs_len + objs_len), device=device)
+            for obj_ref_idx, item in enumerate(objs_refs):
+                # obj: (P, 6)
+                emd = one2many_emd(item, refs_objs, batch_size)
+                t[obj_ref_idx] = emd
+                pbar.update()
+
+            results[class_str] = t
+    return results
+
+
+@torch.no_grad()
 def compute_mmd_emd(
     obj_pkl_data: dict[str, object],
     class2idx: dict[str, int],
-    n_sample: int,
+    sample_idx: int,
     batch_size: int,
+    precomputed_emds: dict[str, torch.Tensor] = None,
 ) -> dict[str, float]:
     results: dict[str, float] = {}
     if not torch.cuda.is_available():
@@ -78,20 +125,23 @@ def compute_mmd_emd(
             objs, refs = [], []
             for datum in obj_pkl_data:
                 if datum["class"] == class_int:
-                    objs.extend(datum["objs"][:n_sample])
+                    objs.append(datum["objs"][sample_idx])
                     refs.append(datum["ref"])
             objs: np.ndarray = np.stack(objs, axis=0)[..., :3]  # (*, P, 3)
             refs: np.ndarray = np.stack(refs, axis=0)[..., :3]  # (*, P, 3)
 
             # move to torch
-            objs: torch.Tensor = torch.from_numpy(objs).to(device).contiguous()
-            refs: torch.Tensor = torch.from_numpy(refs).to(device).contiguous()
+            objs: torch.Tensor = torch.from_numpy(objs).to(device=device).contiguous()
+            refs: torch.Tensor = torch.from_numpy(refs).to(device=device).contiguous()
 
             # compute the MMD-EMD
             mmd_sum = torch.zeros((), device=device)
-            for ref in refs:
+            for ref_idx, ref in enumerate(refs):
                 # ref: (P, 6)
-                mmd = one2many_emd(ref, objs, batch_size)  # (N,)
+                if precomputed_emds is None:
+                    mmd = one2many_emd(ref, objs, batch_size)  # (N,)
+                else:
+                    mmd = precomputed_emds[class_str][: len(objs), ref_idx]  # (N,)
                 mmd_sum += mmd.min()
                 pbar.update()
 
@@ -105,8 +155,9 @@ def compute_mmd_emd(
 def compute_cov_emd(
     obj_pkl_data: dict[str, object],
     class2idx: dict[str, int],
-    n_sample: int,
+    sample_idx: int,
     batch_size: int,
+    precomputed_emds: dict[str, torch.Tensor] = None,
 ) -> dict[str, float]:
     results: dict[str, float] = {}
     if not torch.cuda.is_available():
@@ -120,20 +171,23 @@ def compute_cov_emd(
             objs, refs = [], []
             for datum in obj_pkl_data:
                 if datum["class"] == class_int:
-                    objs.extend(datum["objs"][:n_sample])
+                    objs.append(datum["objs"][sample_idx])
                     refs.append(datum["ref"])
             objs: np.ndarray = np.stack(objs, axis=0)[..., :3]  # (*, P, 3)
             refs: np.ndarray = np.stack(refs, axis=0)[..., :3]  # (*, P, 3)
 
             # move to torch
-            objs: torch.Tensor = torch.from_numpy(objs).to(device).contiguous()
-            refs: torch.Tensor = torch.from_numpy(refs).to(device).contiguous()
+            objs: torch.Tensor = torch.from_numpy(objs).to(device=device).contiguous()
+            refs: torch.Tensor = torch.from_numpy(refs).to(device=device).contiguous()
 
             # compute the MMD-EMD
             cov_idx_set = set()
-            for obj in objs:
+            for obj_idx, obj in enumerate(objs):
                 # obj: (P, 6)
-                cov = one2many_emd(obj, refs, batch_size)  # (N,)
+                if precomputed_emds is None:
+                    cov = one2many_emd(obj, refs, batch_size)  # (N,)
+                else:
+                    cov = precomputed_emds[class_str][obj_idx, len(refs) :]  # (N,)
                 cov_idx_set.add(cov.argmin().item())
                 pbar.update()
 
@@ -147,6 +201,8 @@ def compute_1nna_emd(
     obj_pkl_data: dict[str, object],
     class2idx: dict[str, int],
     batch_size: int,
+    sample_idx: int,
+    precomputed_emds: dict[str, torch.Tensor] = None,
 ) -> dict[str, float]:
     results: dict[str, float] = {}
     if not torch.cuda.is_available():
@@ -160,15 +216,15 @@ def compute_1nna_emd(
             objs, refs = [], []
             for datum in obj_pkl_data:
                 if datum["class"] == class_int:
-                    objs.append(datum["objs"][0])
+                    objs.append(datum["objs"][sample_idx])
                     refs.append(datum["ref"])
             assert len(objs) == len(refs)
             objs: np.ndarray = np.stack(objs, axis=0)[..., :3]  # (*, P, 3)
             refs: np.ndarray = np.stack(refs, axis=0)[..., :3]  # (*, P, 3)
 
             # move to torch
-            objs: torch.Tensor = torch.from_numpy(objs).to(device).contiguous()
-            refs: torch.Tensor = torch.from_numpy(refs).to(device).contiguous()
+            objs: torch.Tensor = torch.from_numpy(objs).to(device=device).contiguous()
+            refs: torch.Tensor = torch.from_numpy(refs).to(device=device).contiguous()
             alls = torch.cat((objs, refs), dim=0)  # (2*, P, 3)
             half_num = len(objs)
 
@@ -176,7 +232,10 @@ def compute_1nna_emd(
             hit_count = 0
             for all_idx, item in enumerate(alls):
                 # item: (P, 6)
-                emd = one2many_emd(item, alls, batch_size)  # (2*,)
+                if precomputed_emds is None:
+                    emd = one2many_emd(item, alls, batch_size)  # (2*,)
+                else:
+                    emd = precomputed_emds[class_str][all_idx]  # (2*,)
                 nn_idx = emd.topk(2, dim=0, largest=False)[1][1].item()
                 if all_idx < half_num and nn_idx < half_num:
                     hit_count += 1
@@ -215,7 +274,7 @@ def voxelize_density(pcs: np.ndarray, grid: int = 28) -> np.ndarray:
 def compute_jsd(
     obj_pkl_data: dict[str, object],
     class2idx: dict[str, int],
-    n_sample: int,
+    sample_idx: int,
 ) -> dict[str, float]:
     results: dict[str, float] = {}
     with tqdm(total=len(class2idx), desc="JSD") as pbar:
@@ -225,7 +284,7 @@ def compute_jsd(
             objs, refs = [], []
             for datum in obj_pkl_data:
                 if datum["class"] == class_int:
-                    objs.extend(datum["objs"][:n_sample])
+                    objs.append(datum["objs"][sample_idx])
                     refs.append(datum["ref"])
             objs: np.ndarray = np.stack(objs, axis=0)[..., :3]  # (*, P, 3)
             refs: np.ndarray = np.stack(refs, axis=0)[..., :3]  # (*, P, 3)
@@ -242,7 +301,7 @@ def compute_jsd(
 
 @torch.no_grad()
 def compute_acc(
-    obj_pkl_data: dict[str, object], class2idx: dict[str, int]
+    obj_pkl_data: dict[str, object], class2idx: dict[str, int], sample_idx: int
 ) -> tuple[dict[str, float], dict[str, float]]:
     import json
 
@@ -269,7 +328,7 @@ def compute_acc(
     class_name_list = list(class_to_idx.keys())
 
     class_name_tokens = tokenizer(class_name_list, return_tensors="pt", padding=True)
-    class_name_tokens = class_name_tokens.to(device)
+    class_name_tokens = class_name_tokens.to(device=device)
 
     # referit3d model
     mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
@@ -279,8 +338,8 @@ def compute_acc(
     point_e_config["n_ctx"] = args.points_per_object
     point_e = model_from_config(point_e_config, device)
     # move models to gpu
-    mvt3dvg = mvt3dvg.to(device).eval()
-    point_e = point_e.to(device).eval()
+    mvt3dvg = mvt3dvg.to(device=device).eval()
+    point_e = point_e.to(device=device).eval()
     # load model and checkpoints
     # if args.mode == "train":
     mvt3dvg = torch.compile(mvt3dvg)
@@ -295,7 +354,7 @@ def compute_acc(
             objs, tgt_class, refs = [], [], []
             for datum in obj_pkl_data:
                 if datum["class"] == class_int:
-                    objs.append(datum["objs"][0])
+                    objs.append(datum["objs"][sample_idx])
                     tgt_class.append(datum["class"])
                     refs.append(datum["ref"])
             objs: np.ndarray = np.stack(objs, axis=0)  # (*, P, 6)
@@ -308,8 +367,8 @@ def compute_acc(
             assert len(objs) == len(tgt_class)
 
             # move to torch
-            objs: torch.Tensor = torch.from_numpy(objs).to(device)
-            refs: torch.Tensor = torch.from_numpy(refs).to(device)
+            objs: torch.Tensor = torch.from_numpy(objs).to(device=device)
+            refs: torch.Tensor = torch.from_numpy(refs).to(device=device)
             tgt_class: torch.Tensor = torch.tensor(tgt_class, dtype=torch.long, device=device)
 
             # compute the ACC
@@ -350,10 +409,10 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--pkl-file", type=str, help="input pickle file")
     parser.add_argument(
         "-s",
-        "--n-sample",
+        "--sample-idx",
         type=int,
-        default=1,
-        help="number of samples in generated objs to compute. [Default: 1]",
+        default=0,
+        help="index of samples in generated objs to compute. [Default: 0]",
     )
     parser.add_argument(
         "-b",
@@ -384,6 +443,7 @@ if __name__ == "__main__":
     # read the pkl file
     with open(args.pkl_file, "rb") as f:
         obj_pkl_data = pickle.load(f)
+        # obj_pkl_data = obj_pkl_data[:32]
 
     # statistics on the class types
     class2idx: dict[str, int] = {}
@@ -394,39 +454,53 @@ if __name__ == "__main__":
 
     out: dict[str, dict[str, float]] = {}
 
+    if "1-nna-emd" in args.metrics:
+        precomputed_emds = precompute_emds(
+            obj_pkl_data,
+            class2idx=class2idx,
+            sample_idx=args.sample_idx,
+            batch_size=args.batch_size,
+        )
+    else:
+        precomputed_emds = None
+
     for metric in args.metrics:
         try:
             if metric == "mmd-emd":
                 out["mmd_emd"] = compute_mmd_emd(
                     obj_pkl_data,
                     class2idx=class2idx,
-                    n_sample=args.n_sample,
+                    sample_idx=args.sample_idx,
                     batch_size=args.batch_size,
+                    precomputed_emds=precomputed_emds,
                 )
             elif metric == "cov-emd":
                 out["cov_emd"] = compute_cov_emd(
                     obj_pkl_data,
                     class2idx=class2idx,
-                    n_sample=args.n_sample,
+                    sample_idx=args.sample_idx,
                     batch_size=args.batch_size,
+                    precomputed_emds=precomputed_emds,
                 )
             elif metric == "1-nna-emd":
                 out["one_nna"] = compute_1nna_emd(
                     obj_pkl_data,
                     class2idx=class2idx,
+                    sample_idx=args.sample_idx,
                     batch_size=args.batch_size,
+                    precomputed_emds=precomputed_emds,
                 )
             elif metric == "jsd":
                 out["jsd"] = compute_jsd(
                     obj_pkl_data,
                     class2idx=class2idx,
-                    n_sample=args.n_sample,
+                    sample_idx=args.sample_idx,
                 )
             elif metric == "acc":
-                out["acc1"], out["acc5"] = compute_acc(obj_pkl_data)
+                out["acc1"], out["acc5"] = compute_acc(obj_pkl_data, sample_idx=args.sample_idx)
         except Exception as e:
-            warnings.warn(f"Failed to compute {metric}. {e}")
-            raise e
+            warnings.warn(f"Failed to compute {metric}.")
+            traceback.print_exc()
 
     # write to csv
     os.makedirs(osp.dirname(args.output), exist_ok=True)
