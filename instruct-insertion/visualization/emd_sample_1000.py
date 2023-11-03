@@ -288,9 +288,9 @@ for _ in tqdm.tqdm(range(max_len)):
             obj["stimulus_id"] = batch["stimulus_id"][j]
             obj["class"] = batch["tgt_class"][j].item()
             obj["class_str"] = idx_to_class[obj["class"]]
-            obj["pred_xyz_raw"] = pred_topk_xyz.cpu().numpy()
-            obj["radius"] = pred_radius.cpu().numpy()
-            obj["pred_xyz"] = pred_xyz_real.cpu().numpy()
+            obj["pred_xyz_raw"] = pred_topk_xyz[j].cpu().numpy()
+            obj["radius"] = pred_radius[j].cpu().numpy()
+            obj["pred_xyz"] = pred_xyz_real[j].cpu().numpy()
             objs.append(obj)
         # print(objs)
         # print(objs[0]["objs"])

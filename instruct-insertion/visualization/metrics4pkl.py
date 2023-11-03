@@ -27,6 +27,21 @@ from openpoints.cpp.emd.emd import EarthMoverDistanceFunction
 #   "class": int,
 #   "class_str": str,
 # }]
+
+# obj_pkl_data = [
+#     {
+#         "prompt": "",
+#         "objs": list of numpy of shape [P, 6],
+#         "ref": numpy of shape [P, 6],
+#         "stimulus_id": str,
+#         "class": int,
+#         "class_str": str,
+#         "pred_xyz_raw": numpy of shape [5, P, 3] located in norm axis,
+#         "pred_xyz": numpy of shape [5, P, 3] located in scene,
+#         "radius": numpy of shape [P, 1] with all same value,
+#     }
+# ]
+
 PROJECT_TOP_DIR = f"{osp.dirname(__file__)}/../../tmp_link_saves"
 PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
 CHECKPOINT_DIR = osp.join(
