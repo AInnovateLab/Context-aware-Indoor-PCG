@@ -21,13 +21,13 @@ device = accelerator.device
 
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-09-21_18-18-07",
-#     "ckpt_800000",
-# )
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
+CHECKPOINT_DIR = osp.join(
+    PROJECT_DIR,
+    "checkpoints",
+    "2023-09-21_18-18-07",
+    "ckpt_800000",
+)
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
@@ -56,13 +56,13 @@ PROJECT_TOP_DIR = "../../tmp_link_saves"
 #     "2023-10-21_14-18-59",
 #     "best-test_rf3d_loc_estimate_dist-1.6604-step-144000",
 # )
-PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "point_e_only")
-CHECKPOINT_DIR = osp.join(
-    PROJECT_DIR,
-    "checkpoints",
-    "2023-10-25_16-29-07",
-    "best-test_rf3d_loc_estimate_with_top_k_dist-1.9620-step-240000",
-)
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "point_e_only")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-10-25_16-29-07",
+#     "best-test_rf3d_loc_estimate_with_top_k_dist-1.9620-step-240000",
+# )
 
 with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
     args = edict(json.load(f))
@@ -206,10 +206,19 @@ for _ in tqdm.tqdm(range(max_len)):
         ctx_embeds = torch.cat((ctx_embeds, ctx_embeds), dim=0)
 
         prompts = batch["text"]
-        # obj = {"prompt":"", "objs": [], "ref": numpy, "stimulus_id": str, "class": int, "class_str": str, }
+
+        # obj = {"prompt":"",
+        #        "objs": [],
+        #        "ref": numpy,
+        #        "stimulus_id": str,
+        #        "class": int,
+        #        "class_str": str,
+        #        "pred_xyz_n": numpy,
+        #        "pred_xyz": numpy,
+        #        "radius": numpy}
 
         generated_objs = []
-        for i in range(3):
+        for i in range(1):
             samples_it = sampler.sample_batch_progressive(
                 batch_size=B,
                 ctx_embeds=ctx_embeds,
@@ -228,6 +237,44 @@ for _ in tqdm.tqdm(range(max_len)):
             # coords = last_pcs[:, :, :3]
             generated_objs.append(last_pcs.cpu().numpy())
 
+        # For axis_norm model
+        TOPK = 5
+        pred_xy, pred_z, pred_radius = pred_xyz
+        pred_xy_topk_bins = pred_xy.topk(TOPK, dim=-1)[1]  # (B, 5)
+        # pred_z_topk_bins = pred_z.topk(5, dim=-1)[1]  # (B, 5)
+        pred_z_topk_bins = pred_z.argmax(dim=-1, keepdim=True).repeat(1, TOPK)  # (B, 5)
+        pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins  # (B, 5)
+        pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins  # (B, 5)
+        pred_bins = torch.stack(
+            (pred_x_topk_bins, pred_y_topk_bins, pred_z_topk_bins), dim=-1
+        )  # (B, 5, 3)
+        pred_bins = (pred_bins.float() + 0.5) / args.axis_norm_bins  # (B, 5, 3)
+        (
+            min_box_center_axis_norm,  # (B, 3)
+            max_box_center_axis_norm,  # (B, 3)
+        ) = (
+            batch["min_box_center_before_axis_norm"],
+            batch["max_box_center_before_axis_norm"],
+        )  # all range from [-1, 1]
+        pred_topk_xyz = (
+            min_box_center_axis_norm[:, None]
+            + (max_box_center_axis_norm - min_box_center_axis_norm)[:, None] * pred_bins
+        )  # (B, 5, 3)
+        P = last_pcs.shape[1]
+        # print(P)
+        # pred_radius = pred_radius.unsqueeze(-1).permute(0, 2, 1).repeat(1, 5, 1)  # (B, 5, 1)
+        pred_radius = pred_radius[:, None, :].repeat(1, P, 1)  # (B, P, 1)
+        # pred_topk_xyz = torch.cat([pred_topk_xyz, pred_radius], dim=-1)  # (B, 5, 4)
+
+        pred_xyz_real = last_pcs[:, :, :3] * pred_radius  # (B, P, 3)
+        pred_xyz_real = pred_xyz_real[:, None, :, :].repeat(1, 5, 1, 1) + pred_topk_xyz[
+            :, :, None, :
+        ].repeat(
+            1, 1, P, 1
+        )  # (B, 5, P, 3)
+        # print(pred_xyz_real.shape)
+        # print(len(generated_objs))
+
         # put data into obj
         # objs_tmp = []
         for j in range(batch["tgt_class"].shape[0]):
@@ -241,6 +288,9 @@ for _ in tqdm.tqdm(range(max_len)):
             obj["stimulus_id"] = batch["stimulus_id"][j]
             obj["class"] = batch["tgt_class"][j].item()
             obj["class_str"] = idx_to_class[obj["class"]]
+            obj["pred_xyz_raw"] = pred_topk_xyz.cpu().numpy()
+            obj["radius"] = pred_radius.cpu().numpy()
+            obj["pred_xyz"] = pred_xyz_real.cpu().numpy()
             objs.append(obj)
         # print(objs)
         # print(objs[0]["objs"])
