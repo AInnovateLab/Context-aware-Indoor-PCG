@@ -43,14 +43,22 @@ from openpoints.cpp.emd.emd import EarthMoverDistanceFunction
 # ]
 
 PROJECT_TOP_DIR = f"{osp.dirname(__file__)}/../../tmp_link_saves"
-PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-09-21_18-18-07",
+#     "ckpt_800000",
+# )
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
 CHECKPOINT_DIR = osp.join(
     PROJECT_DIR,
     "checkpoints",
-    "2023-09-21_18-18-07",
-    "ckpt_800000",
+    "2023-10-12_15-42-52",
+    "ckpt_160000",
 )
-SCANNET_PKL_FILE = f"{osp.dirname(__file__)}/../../datasets/scannet/instruct/global.pkl"
+# SCANNET_PKL_FILE = f"{osp.dirname(__file__)}/../../datasets/scannet/instruct/global.pkl"
+SCANNET_PKL_FILE = f"{osp.dirname(__file__)}/../../datasets/scannet/instruct/global_small.pkl"
 
 
 @torch.no_grad()
@@ -202,7 +210,7 @@ def compute_cov_emd(
                 if precomputed_emds is None:
                     cov = one2many_emd(obj, refs, batch_size)  # (N,)
                 else:
-                    cov = precomputed_emds[class_str][obj_idx, len(refs) :]  # (N,)
+                    cov = precomputed_emds[class_str][obj_idx, : len(refs)]  # (N,)
                 cov_idx_set.add(cov.argmin().item())
                 pbar.update()
 
@@ -240,25 +248,25 @@ def compute_1nna_emd(
             # move to torch
             objs: torch.Tensor = torch.from_numpy(objs).to(device=device).contiguous()
             refs: torch.Tensor = torch.from_numpy(refs).to(device=device).contiguous()
-            alls = torch.cat((objs, refs), dim=0)  # (2*, P, 3)
+            objs_refs = torch.cat((objs, refs), dim=0)  # (2*, P, 3)
             half_num = len(objs)
 
             # compute the 1NNA-EMD
             hit_count = 0
-            for all_idx, item in enumerate(alls):
+            for all_idx, item in enumerate(objs_refs):
                 # item: (P, 6)
                 if precomputed_emds is None:
-                    emd = one2many_emd(item, alls, batch_size)  # (2*,)
+                    emd = one2many_emd(item, objs_refs, batch_size)  # (2*,)
                 else:
                     emd = precomputed_emds[class_str][all_idx]  # (2*,)
                 nn_idx = emd.topk(2, dim=0, largest=False)[1][1].item()
-                if all_idx < half_num and nn_idx < half_num:
+                if all_idx < half_num and nn_idx >= half_num:
                     hit_count += 1
-                elif all_idx >= half_num and nn_idx >= half_num:
+                elif all_idx >= half_num and nn_idx < half_num:
                     hit_count += 1
                 pbar.update()
 
-            results[class_str] = hit_count / len(alls)
+            results[class_str] = hit_count / len(objs_refs)
 
     return results
 
@@ -512,7 +520,11 @@ if __name__ == "__main__":
                     sample_idx=args.sample_idx,
                 )
             elif metric == "acc":
-                out["acc1"], out["acc5"] = compute_acc(obj_pkl_data, sample_idx=args.sample_idx)
+                out["acc1"], out["acc5"] = compute_acc(
+                    obj_pkl_data,
+                    class2idx=class2idx,
+                    sample_idx=args.sample_idx,
+                )
         except Exception as e:
             warnings.warn(f"Failed to compute {metric}.")
             traceback.print_exc()
