@@ -162,6 +162,9 @@ cython_debug/
 # vscode
 .vscode/
 
+# MACOS
+.DS_Store/
+
 # training cache
 logs/
 logs

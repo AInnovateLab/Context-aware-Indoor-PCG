@@ -7,6 +7,8 @@ Pull the repo with submodules:
 git clone --recurse-submodules <Our-Git-Repo>
 ```
 
+We use [accelerate](https://huggingface.co/docs/accelerate/index) to speed up the training process. Please install following [instructions](https://huggingface.co/docs/accelerate/basic_tutorials/install)
+
 Update submodules if not included:
 ```shell
 git submodule update --init --recursive
