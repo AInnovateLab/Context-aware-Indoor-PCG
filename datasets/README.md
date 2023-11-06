@@ -51,7 +51,7 @@ popd
 
 ### Build from source
 
-If you want to build the data from source, you should set up [ReferIt3D] dataset and OpenAI API Token first.
+If you want to build the data from source, you should set up ReferIt3D dataset and OpenAI API Token first.
 
 Download ReferIt3D dataset:
 ```shell

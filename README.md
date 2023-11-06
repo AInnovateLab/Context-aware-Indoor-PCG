@@ -2,9 +2,9 @@
 
 ## Install Openpoints
 
-Pull the repo with submodules: (TODO: anomonous)
+Pull the repo with submodules:
 ```shell
-git clone --recurse-submodules git@github.com:MRTater/PISA.git
+git clone --recurse-submodules <Our-Git-Repo>
 ```
 
 Update submodules if not included:
@@ -19,14 +19,7 @@ git submodule update --recursive --remote
 
 ## Dataset
 
-Create soft links to the dataset folder in the root directory of the project.
-
-```bash
-mkdir -p datasets
-ln -s /media/data1/share/datasets/scannet_referit3d datasets/scannet
-ln -s /media/data1/share/datasets/nr3d datasets/nr3d
-ln -s /media/data1/share/datasets/sr3d datasets/sr3d
-```
+Check [Dataset](datasets/README.md) for more details.
 
 ## Setup
 Create environment:
@@ -39,14 +32,16 @@ pip install -r requirements.txt
 
 If you want to cauculate MMD and 1-NNA, please run the following command:
 ```shell
-cd PISA/openpoints/cpp/emd
+pushd PISA/openpoints/cpp/emd
 python setup.py install
+popd
 ```
 
 Next, install cpp extensions for pointnet:
 ```shell
-cd PISA/openpoints/cpp/pointnet2_batch
+pushd PISA/openpoints/cpp/pointnet2_batch
 python setup.py install
+popd
 ```
 
 ### Visualization
