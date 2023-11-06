@@ -7,8 +7,6 @@ Pull the repo with submodules:
 git clone --recurse-submodules <Our-Git-Repo>
 ```
 
-We use [accelerate](https://huggingface.co/docs/accelerate/index) to speed up the training process. Please install following [instructions](https://huggingface.co/docs/accelerate/basic_tutorials/install)
-
 Update submodules if not included:
 ```shell
 git submodule update --init --recursive
@@ -31,6 +29,8 @@ conda activate pisa
 conda install -c conda-forge cudatoolkit-dev=11.7
 pip install -r requirements.txt
 ```
+
+We use [accelerate](https://huggingface.co/docs/accelerate/index) to speed up the training process. Please install following [instructions](https://huggingface.co/docs/accelerate/basic_tutorials/install)
 
 If you want to cauculate MMD and 1-NNA, please run the following command:
 ```shell
