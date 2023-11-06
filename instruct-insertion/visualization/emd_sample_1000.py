@@ -21,47 +21,54 @@ device = accelerator.device
 
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
-PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
-CHECKPOINT_DIR = osp.join(
-    PROJECT_DIR,
-    "checkpoints",
-    "2023-09-21_18-18-07",
-    "ckpt_800000",
-)
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-09-21_18-18-07",
+#     "ckpt_800000",
+# )
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
 #     "checkpoints",
 #     "2023-09-18_14-52-06",
-#     "best-test_rf3d_loc_estimate_with_top_k_dist-1.0615-step-24000",
+#     "ckpt_160000",
 # )
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
 #     "checkpoints",
 #     "2023-09-16_16-54-54",
-#     "best-test_point_e_pc_cls_accuracy-0.4229-step-128000",
+#     "ckpt_160000",
+# )
+# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_16bin")
+# CHECKPOINT_DIR = osp.join(
+#     PROJECT_DIR,
+#     "checkpoints",
+#     "2023-10-22_15-38-56",
+#     "ckpt_160000",
 # )
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
 #     "checkpoints",
 #     "2023-10-12_15-42-52",
-#     "best-test_rf3d_loc_estimate_dist-1.6379-step-96000",
+#     "ckpt_160000",
 # )
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "baseline")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
 #     "checkpoints",
 #     "2023-10-21_14-18-59",
-#     "best-test_rf3d_loc_estimate_dist-1.6604-step-144000",
+#     "ckpt_160000",
 # )
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "point_e_only")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
 #     "checkpoints",
 #     "2023-10-25_16-29-07",
-#     "best-test_rf3d_loc_estimate_with_top_k_dist-1.9620-step-240000",
+# "ckpt_160000",
 # )
 
 with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
@@ -75,8 +82,8 @@ from data.referit3d.in_out.neural_net_oriented import (
 )
 
 # load data
-SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
-# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
+# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
+SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
 REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
 all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(SCANNET_PKL_FILE)
 referit_data = load_referential_data(args, args.referit3D_file, scans_split)
@@ -236,44 +243,57 @@ for _ in tqdm.tqdm(range(max_len)):
             last_pcs = last_pcs.permute(0, 2, 1)  # (B, P, 6)
             # coords = last_pcs[:, :, :3]
             generated_objs.append(last_pcs.cpu().numpy())
+        P = last_pcs.shape[1]
 
         # For axis_norm model
-        TOPK = 5
-        pred_xy, pred_z, pred_radius = pred_xyz
-        pred_xy_topk_bins = pred_xy.topk(TOPK, dim=-1)[1]  # (B, 5)
-        # pred_z_topk_bins = pred_z.topk(5, dim=-1)[1]  # (B, 5)
-        pred_z_topk_bins = pred_z.argmax(dim=-1, keepdim=True).repeat(1, TOPK)  # (B, 5)
-        pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins  # (B, 5)
-        pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins  # (B, 5)
-        pred_bins = torch.stack(
-            (pred_x_topk_bins, pred_y_topk_bins, pred_z_topk_bins), dim=-1
-        )  # (B, 5, 3)
-        pred_bins = (pred_bins.float() + 0.5) / args.axis_norm_bins  # (B, 5, 3)
-        (
-            min_box_center_axis_norm,  # (B, 3)
-            max_box_center_axis_norm,  # (B, 3)
-        ) = (
-            batch["min_box_center_before_axis_norm"],
-            batch["max_box_center_before_axis_norm"],
-        )  # all range from [-1, 1]
-        pred_topk_xyz = (
-            min_box_center_axis_norm[:, None]
-            + (max_box_center_axis_norm - min_box_center_axis_norm)[:, None] * pred_bins
-        )  # (B, 5, 3)
-        P = last_pcs.shape[1]
-        # print(P)
-        # pred_radius = pred_radius.unsqueeze(-1).permute(0, 2, 1).repeat(1, 5, 1)  # (B, 5, 1)
-        pred_radius = pred_radius[:, None, :].repeat(1, P, 1)  # (B, P, 1)
-        # pred_topk_xyz = torch.cat([pred_topk_xyz, pred_radius], dim=-1)  # (B, 5, 4)
+        if args.axis_norm:
+            TOPK = 5
+            pred_xy, pred_z, pred_radius = pred_xyz
+            pred_xy_topk_bins = pred_xy.topk(TOPK, dim=-1)[1]  # (B, 5)
+            # pred_z_topk_bins = pred_z.topk(5, dim=-1)[1]  # (B, 5)
+            pred_z_topk_bins = pred_z.argmax(dim=-1, keepdim=True).repeat(1, TOPK)  # (B, 5)
+            pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins  # (B, 5)
+            pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins  # (B, 5)
+            pred_bins = torch.stack(
+                (pred_x_topk_bins, pred_y_topk_bins, pred_z_topk_bins), dim=-1
+            )  # (B, 5, 3)
+            pred_bins = (pred_bins.float() + 0.5) / args.axis_norm_bins  # (B, 5, 3)
+            (
+                min_box_center_axis_norm,  # (B, 3)
+                max_box_center_axis_norm,  # (B, 3)
+            ) = (
+                batch["min_box_center_before_axis_norm"],
+                batch["max_box_center_before_axis_norm"],
+            )  # all range from [-1, 1]
+            pred_topk_xyz = (
+                min_box_center_axis_norm[:, None]
+                + (max_box_center_axis_norm - min_box_center_axis_norm)[:, None] * pred_bins
+            )  # (B, 5, 3)
 
-        pred_xyz_real = last_pcs[:, :, :3] * pred_radius  # (B, P, 3)
-        pred_xyz_real = pred_xyz_real[:, None, :, :].repeat(1, 5, 1, 1) + pred_topk_xyz[
-            :, :, None, :
-        ].repeat(
-            1, 1, P, 1
-        )  # (B, 5, P, 3)
-        # print(pred_xyz_real.shape)
-        # print(len(generated_objs))
+            # print(P)
+            # pred_radius = pred_radius.unsqueeze(-1).permute(0, 2, 1).repeat(1, 5, 1)  # (B, 5, 1)
+            pred_radius = pred_radius[:, None, :].repeat(1, P, 1)  # (B, P, 1)
+            # pred_topk_xyz = torch.cat([pred_topk_xyz, pred_radius], dim=-1)  # (B, 5, 4)
+
+            pred_xyz_real = last_pcs[:, :, :3] * pred_radius  # (B, P, 3)
+            pred_xyz_real = pred_xyz_real[:, None, :, :].repeat(1, 5, 1, 1) + pred_topk_xyz[
+                :, :, None, :
+            ].repeat(
+                1, 1, P, 1
+            )  # (B, 5, P, 3)
+            # print(pred_xyz_real.shape)
+            # print(len(generated_objs))
+        else:
+            # replace last_pcs with the real point cloud
+            pred_box_center, pred_box_max_dist = LOCATE_PREDS[:, :3], LOCATE_PREDS[:, 3:4]
+            # print(pred_box_max_dist.shape)
+            pred_radius = pred_box_max_dist[:, None, :].repeat(1, P, 1)  # (B, P, 1)
+
+            # Process the generated point cloud
+            coords = last_pcs[:, :, :3] * pred_radius
+            coords = coords + pred_box_center[:, None, :].repeat(1, P, 1)  # (B, P, 3)
+            pred_topk_xyz = coords
+            pred_xyz_real = coords
 
         # put data into obj
         # objs_tmp = []
@@ -292,60 +312,6 @@ for _ in tqdm.tqdm(range(max_len)):
             obj["radius"] = pred_radius[j].cpu().numpy()
             obj["pred_xyz"] = pred_xyz_real[j].cpu().numpy()
             objs.append(obj)
-        # print(objs)
-        # print(objs[0]["objs"])
-        # break
-
-        # Compute the EMD
-        # for i in range(batch["tgt_class"].shape[0]):
-        #     ele = batch["tgt_class"][i].item()
-        #     if ele not in one_nn:
-        #         one_nn[ele] = []
-        #         one_nna[ele] = []
-        #         emd_dis[ele] = []
-        #         num_of_obj_in_classes[ele] = 0
-
-        #     # Compute the 1-nn between the object and all objects of its class
-        #     one_nn_tmp = emd.forward(
-        #         coords[i : i + 1].repeat(object_dict[ele].shape[0], 1, 1).contiguous(),
-        #         object_dict[ele],
-        #     )  # (1, len(object_dict))
-        #     one_nn_tmp_v = one_nn_tmp.min()
-        #     one_nn[ele].append(one_nn_tmp_v)
-
-        #     # Compute the emd between the object and all objects of its class
-        #     emd_dis[ele].append(one_nn_tmp)
-        #     num_of_obj_in_classes[ele] += len(object_dict[ele])
-
-        # one_nna_tmp = torch.zeros(all_objects.shape[0], device=device)
-        # for j in range(all_objects.shape[0]):
-        #     one_nna_tmp[j] = (emd.forward(coords[i:i+1].contiguous(), all_objects[j:j+1]))
-        # cloest_class = all_obj_cls[one_nna_tmp.argmin()]
-        # one_nna[ele].append(cloest_class)
-
-        # # Compute the cls
-        # # NOTE - produce the `height append`
-        # diff_pcs = last_pcs  # (B, P, 6)
-        # if args.height_append:
-        #     tgt_pc_height = batch["tgt_pc"][:, :, -1:]  # (B, P, 1)
-        #     # avg height
-        #     tgt_pc_height = tgt_pc_height.mean(dim=1, keepdim=True).repeat(
-        #         1, diff_pcs.shape[1], 1
-        #     )  # (B, P, 1)
-        #     diff_pcs = torch.cat((diff_pcs, tgt_pc_height), dim=-1)  # (B, P, D=7)
-        # _, TGT_CLASS_LOGITS = mvt3dvg.forward_obj_cls(diff_pcs[:, None, :, :])
-        # # record the accuaracy
-        # for i in range(batch["tgt_class"].shape[0]):
-        #     predictions = np.array(TGT_CLASS_LOGITS[i].topk(5)[1].flatten().cpu())
-        #     ele = batch["tgt_class"][i].item()
-        #     if ele not in cls_top1_correct_for_each_class:
-        #         cls_top1_correct_for_each_class[ele] = 0
-        #         cls_top5_correct_for_each_class[ele] = 0
-        #     if predictions[0] == ele:
-        #         cls_top1_correct_for_each_class[ele] += 1
-        #     if ele in predictions:
-        #         cls_top5_correct_for_each_class[ele] += 1
-    # break
 print("Done!")
 
 # create new folder to store the results
@@ -358,21 +324,6 @@ if not os.path.exists(tgt_folder):
 with open(os.path.join(tgt_folder, "objs.pkl"), "wb") as f:
     pickle.dump(objs, f)
 print("Save success!")
-# with open(tgt_folder + "/avg_emd_of_classes.pkl", "wb") as f:
-#     pickle.dump(one_nn, f)
-# with open(tgt_folder + "/num_of_obj_in_classes.pkl", "wb") as f:
-#     pickle.dump(num_of_obj_in_classes, f)
-# with open(tgt_folder + "/cls_top1_correct.pkl", "wb") as f:
-#     pickle.dump(cls_top1_correct_for_each_class, f)
-# with open(tgt_folder + "/cls_top5_correct.pkl", "wb") as f:
-#     pickle.dump(cls_top5_correct_for_each_class, f)
-# all_data = {}
-# all_data["one_nn"] = one_nn
-# all_data["one_nna"] = one_nna
-# all_data["mmd_emd"] = emd_dis
-# all_data["num_of_obj_in_classes"] = num_of_obj_in_classes
-# with open(tgt_folder + "/all_data.pkl", "wb") as f:
-# pickle.dump(all_data, f)
 
 
 import im_remind
