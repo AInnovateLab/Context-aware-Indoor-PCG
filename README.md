@@ -61,13 +61,10 @@ If the error about `gxx_linux` occurs, especially when compiling `emd_cuda`, ple
 conda install -c conda-forge gxx_linux-64=11.4
 ```
 
-If the following error occurs:
-```
-libstdc++.so.6: version `GLIBCXX_3.4.30' not found
-```
+## Contribution
 
-Then update the `libstdc++` library in conda:
+Install pre-commit-hooks before commits:
 ```shell
-conda install -c conda-forge libstdcxx-ng
-conda install -c conda-forge gcc=11
+pip install pre-commit
+pre-commit install
 ```
