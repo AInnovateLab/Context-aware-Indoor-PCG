@@ -169,6 +169,7 @@ logs
 # downloaded datasets
 datasets/*
 !datasets/data_transform.py
+!datasets/README.md
 
 # glove
 glove.*.txt
