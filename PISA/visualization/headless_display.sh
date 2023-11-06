@@ -1,6 +1,7 @@
 #!/bin/bash
 # Script for setting up a headless display for PyVista in remote servers.
-# Usage: source headless_display.sh
+# Usage:
+#   source headless_display.sh
 
 export DISPLAY=:99.0
 export PYVISTA_OFF_SCREEN=true
