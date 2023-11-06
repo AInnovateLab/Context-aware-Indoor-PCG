@@ -63,4 +63,4 @@ gdown https://drive.google.com/file/d/1kcxscHp8yA_iKLT3BdTNghlY3SBfKAQI/view?usp
 popd
 ```
 
-Check `datasets/data_transform.py` for more details.
+Check [datasets/data_transform.py](data_transform.py) for more details.

@@ -1,6 +1,8 @@
-# PISA: Point Cloud based Instructed Scene Augmentation
+# PISA: Point Cloud-based Instructed Scene Augmentation
 
-## Install Openpoints
+Official implementation of the paper "[PISA: Point Cloud-based Instructed Scene Augmentation](TODO)".
+
+## Clone Repo
 
 Pull the repo with submodules:
 ```shell
@@ -35,21 +37,14 @@ We use [accelerate](https://huggingface.co/docs/accelerate/index) to speed up th
 accelerate config
 ```
 
-If you want to cauculate EMD-based metrics, please run the following command:
+Compile modules for EMD-based metrics and PointNet:
 ```shell
-pushd PISA/openpoints/cpp/emd
-python setup.py install
-popd
+pushd PISA/openpoints/cpp/chamfer_dist; python setup.py install; popd
+pushd PISA/openpoints/cpp/emd; python setup.py install; popd
+pushd PISA/openpoints/cpp/pointnet2_batch; python setup.py install; popd
 ```
 
-Next, install cpp extensions for PointNet:
-```shell
-pushd PISA/openpoints/cpp/pointnet2_batch
-python setup.py install
-popd
-```
-
-### Visualization
+## Visualization
 
 Install `jupyterlab` and interative widgets:
 ```shell
@@ -57,10 +52,7 @@ pip install jupyterlab
 pip install trame==2.5 jupyter-server-proxy
 ```
 
-#### Recommended Test Scene
-```
-(['scene0474_00'], ['Create a chair on the ground in the corner.'], 19)
-```
+Check [Visualization](PISA/visualization/README.md) for details.
 
 ## FAQ
 

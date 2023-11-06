@@ -1,3 +1,10 @@
+"""Script to compute metrics for objs.pkl, generated from `randomly_sample_test.py`.
+
+**Important**: Change some paths before runing.
+
+Example:
+    python metrics4pkl.py -m acc jsd mmd-emd cov-emd 1-nna-emd -i PATH_TO_TOP_DIR/fps_qpp32_rr4_sr3d/objs.pkl --force
+"""
 import argparse
 import os
 import os.path as osp
@@ -19,16 +26,7 @@ sys.path.append(f"{osp.dirname(__file__)}/..")
 
 from openpoints.cpp.emd.emd import EarthMoverDistanceFunction
 
-# obj_pkl_data := [{
-#   "prompt":"",
-#   "objs": list of numpy of shape [P, 6],
-#   "ref": numpy of shape [P, 6],
-#   "stimulus_id": str,
-#   "class": int,
-#   "class_str": str,
-# }]
-
-# obj_pkl_data = [
+# obj_pkl_data := [
 #     {
 #         "prompt": "",
 #         "objs": list of numpy of shape [P, 6],
@@ -49,13 +47,11 @@ CHECKPOINT_DIR = osp.join(
     "checkpoints/folder/name",
 )
 
-# load data: choose either Sr3D or Nr3D
+# NOTE: load data: choose either Sr3D or Nr3D
 # Sr3D dataset
-SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
+SCANNET_PKL_FILE = "../../datasets/scannet/PISA/global.pkl"
 # Nr3D dataset
-# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
-# Generative Text
-REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
+# SCANNET_PKL_FILE = "../../datasets/scannet/PISA/global_small.pkl"
 
 
 @torch.no_grad()

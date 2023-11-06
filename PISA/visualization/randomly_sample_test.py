@@ -1,3 +1,7 @@
+"""Script to randomly sample test data and save the results.
+
+**Important**: Change some paths before runing. Better use `run_sample.sh` to enable GPU acceleration.
+"""
 import json
 import os
 import os.path as osp
@@ -30,7 +34,7 @@ from scripts.train_utils import move_batch_to_device_
 accelerator = accelerate.Accelerator()
 device = accelerator.device
 
-# load existing args
+# NOTE: load existing args
 PROJECT_TOP_DIR = "your/project/dir"
 PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "dir/of/model")
 CHECKPOINT_DIR = osp.join(
@@ -43,13 +47,12 @@ with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
     args = edict(json.load(f))
 
 
-# load data: choose either Sr3D or Nr3D
+# NOTE: load data: choose either Sr3D or Nr3D
 # Sr3D dataset
 SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
 # Nr3D dataset
 # SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
-# Generative Text
-REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
+
 all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(SCANNET_PKL_FILE)
 referit_data = load_referential_data(args, args.referit3D_file, scans_split)
 # Prepare data & compute auxiliary meta-information.
