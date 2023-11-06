@@ -42,23 +42,20 @@ from openpoints.cpp.emd.emd import EarthMoverDistanceFunction
 #     }
 # ]
 
-PROJECT_TOP_DIR = f"{osp.dirname(__file__)}/../../tmp_link_saves"
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-09-21_18-18-07",
-#     "ckpt_800000",
-# )
-PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
+PROJECT_TOP_DIR = "your/project/dir"
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "dir/of/model")
 CHECKPOINT_DIR = osp.join(
     PROJECT_DIR,
-    "checkpoints",
-    "2023-10-12_15-42-52",
-    "ckpt_160000",
+    "checkpoints/folder/name",
 )
-# SCANNET_PKL_FILE = f"{osp.dirname(__file__)}/../../datasets/scannet/instruct/global.pkl"
-SCANNET_PKL_FILE = f"{osp.dirname(__file__)}/../../datasets/scannet/instruct/global_small.pkl"
+
+# load data: choose either Sr3D or Nr3D
+# Sr3D dataset
+SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
+# Nr3D dataset
+# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
+# Generative Text
+REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
 
 
 @torch.no_grad()

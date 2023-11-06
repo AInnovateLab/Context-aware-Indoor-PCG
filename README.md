@@ -2,7 +2,7 @@
 
 ## Install Openpoints
 
-Pull the repo with submodules:
+Pull the repo with submodules: (TODO: anomonous)
 ```shell
 git clone --recurse-submodules git@github.com:MRTater/PISA.git
 ```
@@ -37,13 +37,7 @@ conda install -c conda-forge cudatoolkit-dev=11.7
 pip install -r requirements.txt
 ```
 
-Install chamfer: (TODO, remove this unnecessary dependency)
-```shell
-cd PISA/openpoints/cpp/chamfer_dist
-python setup.py install
-```
-
-If you want to cauculate EMD, please run the following command:
+If you want to cauculate MMD and 1-NNA, please run the following command:
 ```shell
 cd PISA/openpoints/cpp/emd
 python setup.py install

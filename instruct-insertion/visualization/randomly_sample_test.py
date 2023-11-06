@@ -5,14 +5,25 @@ import pickle
 import sys
 
 import accelerate
-import numpy as np
-import pyvista as pv
 import torch
 import tqdm
 from easydict import EasyDict as edict
-from termcolor import colored
 
-sys.path.append(os.path.join(os.getcwd(), ".."))
+# Load models
+from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
+from transformers import BertTokenizer
+
+sys.path.append(f"{osp.dirname(__file__)}/..")
+from data.referit3d.datasets import make_data_loaders
+from data.referit3d.in_out.neural_net_oriented import (
+    compute_auxiliary_data,
+    load_referential_data,
+    load_scan_related_data,
+    trim_scans_per_referit3d_data_,
+)
+from models.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
+from models.point_e_model.diffusion.sampler import PointCloudSampler
+from models.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
 from openpoints.cpp.emd.emd import earth_mover_distance
 from scripts.train_utils import move_batch_to_device_
 
@@ -20,70 +31,24 @@ accelerator = accelerate.Accelerator()
 device = accelerator.device
 
 # load existing args
-PROJECT_TOP_DIR = "../../tmp_link_saves"
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-09-21_18-18-07",
-#     "ckpt_800000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-09-18_14-52-06",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-09-16_16-54-54",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_16bin")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-22_15-38-56",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-12_15-42-52",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "baseline")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-21_14-18-59",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "point_e_only")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-25_16-29-07",
-# "ckpt_160000",
-# )
+PROJECT_TOP_DIR = "your/project/dir"
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "dir/of/model")
+CHECKPOINT_DIR = osp.join(
+    PROJECT_DIR,
+    "checkpoints/folder/name",
+)
+SAVE_DIR = "your/save/dir"
 
 with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
     args = edict(json.load(f))
 
-from data.referit3d.in_out.neural_net_oriented import (
-    compute_auxiliary_data,
-    load_referential_data,
-    load_scan_related_data,
-    trim_scans_per_referit3d_data_,
-)
 
-# load data
-# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
-SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
+# load data: choose either Sr3D or Nr3D
+# Sr3D dataset
+SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
+# Nr3D dataset
+# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
+# Generative Text
 REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
 all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(SCANNET_PKL_FILE)
 referit_data = load_referential_data(args, args.referit3D_file, scans_split)
@@ -91,16 +56,6 @@ referit_data = load_referential_data(args, args.referit3D_file, scans_split)
 all_scans_in_dict = trim_scans_per_referit3d_data_(referit_data, all_scans_in_dict)
 mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
 
-with open("sr3d_object_dict_testset.pkl", "rb") as f:
-    object_dict = pickle.load(f)
-# {key: (B, P, 3)}
-all_obj_cls = []
-for key, value in object_dict.items():
-    for _ in range(value.shape[0]):
-        all_obj_cls.append(key)
-all_objects = torch.cat(list(object_dict.values()), dim=0)
-
-from transformers import BertTokenizer
 
 # prepare tokenizer
 tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
@@ -113,8 +68,6 @@ class_name_list = list(class_to_idx.keys())
 class_name_tokens = tokenizer(class_name_list, return_tensors="pt", padding=True)
 class_name_tokens = class_name_tokens.to(device)
 
-from data.referit3d.datasets import make_data_loaders
-
 data_loaders = make_data_loaders(
     args=args,
     accelerator=accelerator,
@@ -124,13 +77,6 @@ data_loaders = make_data_loaders(
     mean_rgb=mean_rgb,
     tokenizer=tokenizer,
 )
-
-from models.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
-from models.point_e_model.diffusion.sampler import PointCloudSampler
-from models.point_e_model.models.configs import MODEL_CONFIGS, model_from_config
-
-# Load models
-from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 
 # referit3d model
 mvt3dvg = ReferIt3DNet_transformer(args, n_classes, class_name_tokens, ignore_index=pad_idx)
@@ -150,7 +96,6 @@ mvt3dvg = torch.compile(mvt3dvg)
 mvt3dvg, point_e = accelerator.prepare(mvt3dvg, point_e)
 accelerator.load_state(CHECKPOINT_DIR)
 
-from models.point_e_model.diffusion.sampler import PointCloudSampler
 
 aux_channels = ["R", "G", "B"]
 sampler = PointCloudSampler(
@@ -167,7 +112,6 @@ sampler = PointCloudSampler(
     s_churn=[3],
 )
 
-import pickle
 
 # from EMD_evaluation.emd_module import emd_eval
 
@@ -252,8 +196,10 @@ for _ in tqdm.tqdm(range(max_len)):
             pred_xy_topk_bins = pred_xy.topk(TOPK, dim=-1)[1]  # (B, 5)
             # pred_z_topk_bins = pred_z.topk(5, dim=-1)[1]  # (B, 5)
             pred_z_topk_bins = pred_z.argmax(dim=-1, keepdim=True).repeat(1, TOPK)  # (B, 5)
-            pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins  # (B, 5)
-            pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins  # (B, 5)
+            # (B, 5)
+            pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins
+            # (B, 5)
+            pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins
             pred_bins = torch.stack(
                 (pred_x_topk_bins, pred_y_topk_bins, pred_z_topk_bins), dim=-1
             )  # (B, 5, 3)
@@ -316,7 +262,7 @@ print("Done!")
 
 # create new folder to store the results
 tgt_folder = PROJECT_DIR.split("/")[-1]
-tgt_folder = os.path.join("/home/lyy/workspace/Instruct-Replacement/tmp_lyy_saves", tgt_folder)
+tgt_folder = os.path.join(SAVE_DIR, tgt_folder)
 print("Result save to", tgt_folder)
 if not os.path.exists(tgt_folder):
     os.makedirs(tgt_folder)
@@ -324,8 +270,3 @@ if not os.path.exists(tgt_folder):
 with open(os.path.join(tgt_folder, "objs.pkl"), "wb") as f:
     pickle.dump(objs, f)
 print("Save success!")
-
-
-import im_remind
-
-im_remind.send_tg_msg("Done! Please check")
