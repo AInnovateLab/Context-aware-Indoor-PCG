@@ -1,10 +1,12 @@
-# PISA: Point Cloud based Instructed Scene Augmentation
+# PISA: Point Cloud-based Instructed Scene Augmentation
 
-## Install Openpoints
+Official implementation of the paper "[PISA: Point Cloud-based Instructed Scene Augmentation](TODO)".
+
+## Clone Repo
 
 Pull the repo with submodules:
 ```shell
-git clone --recurse-submodules git@github.com:MRTater/PISA.git
+git clone --recurse-submodules <Our-Git-Repo>
 ```
 
 Update submodules if not included:
@@ -19,14 +21,7 @@ git submodule update --recursive --remote
 
 ## Dataset
 
-Create soft links to the dataset folder in the root directory of the project.
-
-```bash
-mkdir -p datasets
-ln -s /media/data1/share/datasets/scannet_referit3d datasets/scannet
-ln -s /media/data1/share/datasets/nr3d datasets/nr3d
-ln -s /media/data1/share/datasets/sr3d datasets/sr3d
-```
+Check [Dataset](datasets/README.md) for more details.
 
 ## Setup
 Create environment:
@@ -37,55 +32,52 @@ conda install -c conda-forge cudatoolkit-dev=11.7
 pip install -r requirements.txt
 ```
 
-Install chamfer: (TODO, remove this unnecessary dependency)
+We use [accelerate](https://huggingface.co/docs/accelerate/index) to speed up the training process. Please read following [instructions](https://huggingface.co/docs/accelerate/basic_tutorials/install#configuring--accelerate) to configure your `accelerate` environment.
 ```shell
-cd PISA/openpoints/cpp/chamfer_dist
-python setup.py install
+accelerate config
 ```
 
-If you want to cauculate EMD, please run the following command:
+Compile modules for EMD-based metrics and PointNet:
 ```shell
-cd PISA/openpoints/cpp/emd
-python setup.py install
+pushd PISA/openpoints/cpp/chamfer_dist; python setup.py install; popd
+pushd PISA/openpoints/cpp/emd; python setup.py install; popd
+pushd PISA/openpoints/cpp/pointnet2_batch; python setup.py install; popd
 ```
 
-Next, install cpp extensions for pointnet:
+## Train & Evaluation
+Train on Nr3D:
 ```shell
-cd PISA/openpoints/cpp/pointnet2_batch
-python setup.py install
+pushd PISA/scripts; bash train.sh; popd
 ```
 
-### Visualization
+Train on the combination of Sr3D and Nr3D:
+```shell
+pushd PISA/scripts; bash train_sr3d.sh; popd
+```
+
+If you need to turn on evaluation mode, please add `--mode test` to the end of the training script.
+
+## Visualization
 
 Install `jupyterlab` and interative widgets:
 ```shell
+pip install jupyterlab
 pip install trame==2.5 jupyter-server-proxy
 ```
 
-#### Recommended Test Scene
-```
-(['scene0474_00'], ['Create a chair on the ground in the corner.'], 19)
-```
+Check [Visualization](PISA/visualization/README.md) for details.
 
 ## FAQ
 
-
-If the following error occurs:
-```
-libstdc++.so.6: version `GLIBCXX_3.4.30' not found
-```
-
-Then update the libstdc++ library in conda:
-```shell
-conda install -c conda-forge libstdcxx-ng
-conda install -c conda-forge gcc=11
-```
-
-If the following error occurs, especially when installing `emd_cuda`:
-```shell
-gxx_linux-64
-```
-Then please install the following:
+If the error about `gxx_linux` occurs, especially when compiling `emd_cuda`, please install the following:
 ```shell
 conda install -c conda-forge gxx_linux-64=11.4
+```
+
+## Contribution
+
+Install pre-commit-hooks before commits:
+```shell
+pip install pre-commit
+pre-commit install
 ```
