@@ -190,7 +190,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument(
         "--gradient-accumulation-steps", type=int, default=1, help="gradient accumulation steps."
     )
-    parser.add_argument("--point-e-only", type=str2bool, default=True, help="Train point-e only")
+    parser.add_argument("--point-e-only", type=str2bool, default=False, help="Train point-e only")
     parser.add_argument(
         "--resume-path",
         type=str,

@@ -197,7 +197,7 @@ def main():
             special_mod_names.remove(name)
     assert len(special_mod_names) == 0, f"Special modules not found: {special_mod_names}"
 
-    mvt3dvg = torch.compile(mvt3dvg)
+    # mvt3dvg = torch.compile(mvt3dvg)
     mvt3dvg = mvt3dvg.to(device)
 
     #######################

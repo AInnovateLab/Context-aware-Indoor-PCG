@@ -13,6 +13,7 @@ from models.point_e_model.util.plotting import plot_point_cloud
 from models.point_e_model.util.point_cloud import PointCloud
 from models.referit3d_model.referit3d_net import ReferIt3DNet_transformer
 from plyfile import PlyData, PlyElement
+from torch.nn.parallel import DistributedDataParallel
 from transformers import BatchEncoding
 from utils import PathLike, create_dir
 
@@ -102,7 +103,10 @@ def start_training_loop_steps(
             with accelerator.accumulate(MVT3DVG, point_e):
                 move_batch_to_device_(batch, device)
                 B, N, C = len(batch["text"]), batch["ctx_pc"].shape[1], args.inner_dim
-                n_classes = MVT3DVG.n_obj_classes
+                if isinstance(MVT3DVG, DistributedDataParallel):
+                    n_classes = MVT3DVG.module.n_obj_classes
+                else:
+                    n_classes = MVT3DVG.n_obj_classes
                 batch4mvt = batch.copy()
                 batch4mvt.pop("scan_id")
                 batch4mvt.pop("stimulus_id")
@@ -135,7 +139,10 @@ def start_training_loop_steps(
 
                 # Here we add the tensor from MVT3DVG to point_e
                 losses = sampler.loss_texts(ctx_embeds, reals, cond, reals.shape[0])
-                loss_sim = point_e.get_sim_loss()
+                if isinstance(point_e, DistributedDataParallel):
+                    loss_sim = point_e.module.get_sim_loss()
+                else:
+                    loss_sim = point_e.get_sim_loss()
                 LOSS: torch.Tensor = (
                     RF3D_LOSS.mean() + losses.mean() + loss_sim.mean() * sim_loss_weight
                 )
@@ -250,8 +257,8 @@ def evaluate_on_dataset(
         if not args.point_e_only:
             ctx_embeds = torch.cat((ctx_embeds, ctx_embeds), dim=0)
         else:
-            zs = torch.zeros_like(ctx_embeds)
-            ctx_embeds = torch.zeros((zs, zs), device=device)
+            ctx_embeds = torch.zeros_like(torch.cat((ctx_embeds, ctx_embeds), dim=0), device=device)
+            # ctx_embeds = torch.zeros((zs, zs), device=device)
         samples_it = sampler.sample_batch_progressive(
             batch_size=len(prompts),
             ctx_embeds=ctx_embeds,
@@ -364,8 +371,7 @@ def evaluate_on_dataset(
             pred_topk_xyz = torch.cat([pred_topk_xyz, pred_radius], dim=-1)  # (B, 5, 4)
             pred_xyz = pred_topk_xyz
         else:
-            pred_xyz = torch.tensor([])
-
+            pred_xyz = torch.tensor([], device=LOSS.device)
         # gather for multi-gpu
         (
             LOSS,
