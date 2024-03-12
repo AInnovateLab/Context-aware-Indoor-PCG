@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .checkpoint import checkpoint
 from .pretrained_clip import FrozenImageCLIP, ImageCLIP, ImageType
@@ -255,9 +256,14 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
             mvt_feature_dim, self.clip.feature_dim, device=device, dtype=dtype
         )
 
+        self.fusion_layer = nn.Linear(768 * 2, 768, False)
+
     def cached_model_kwargs(self, batch_size: int, model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         with torch.no_grad():
             return dict(embeddings=self.clip(batch_size, **model_kwargs))
+
+    def get_sim_loss(self):
+        return self.l_sim
 
     def forward(
         self,
@@ -283,7 +289,10 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         ctx_embeds = self.input_feat_proj(ctx_embeds)
 
         clip_out = self.clip(batch_size=len(x), images=images, texts=texts, embeddings=embeddings)
-        clip_out = clip_out + ctx_embeds
+        # Cosine similarity
+        self.l_sim = F.cosine_similarity(clip_out, ctx_embeds)
+        clip_out = self.fusion_layer(torch.cat([clip_out, ctx_embeds], dim=1))
+        # clip_out = clip_out + ctx_embeds
         assert len(clip_out.shape) == 2 and clip_out.shape[0] == x.shape[0]
 
         if self.training:

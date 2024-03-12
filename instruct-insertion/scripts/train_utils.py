@@ -90,7 +90,7 @@ def start_training_loop_steps(
     point_e.train()
     current_global_steps = start_global_steps
     gradient_acc_counter = 0
-
+    sim_loss_weight = args.sim_loss_weight
     while True:
         for batch in tqdm.tqdm(
             data_loader,
@@ -135,8 +135,10 @@ def start_training_loop_steps(
 
                 # Here we add the tensor from MVT3DVG to point_e
                 losses = sampler.loss_texts(ctx_embeds, reals, cond, reals.shape[0])
-
-                LOSS: torch.Tensor = RF3D_LOSS.mean() + losses.mean()
+                loss_sim = point_e.get_sim_loss()
+                LOSS: torch.Tensor = (
+                    RF3D_LOSS.mean() + losses.mean() + loss_sim.mean() * sim_loss_weight
+                )
 
                 # Backward
                 optimizer.zero_grad()

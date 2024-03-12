@@ -244,6 +244,7 @@ def parse_arguments(notebook_options=None):
     )
 
     parser.add_argument("--point-e-model", type=str, default="base40M-textvec")
+    parser.add_argument("--sim-loss-weight", type=float, default=1.0)
 
     ########################
     #                      #
