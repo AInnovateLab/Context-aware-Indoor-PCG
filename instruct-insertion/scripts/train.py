@@ -100,7 +100,10 @@ def main():
     # tracker setup
     accelerator.init_trackers(f"{args.project_name}_{project_time_str}", config=vars(args))
     # torchdynamo setting
-    torch._dynamo.config.log_level = logging.ERROR
+    if torch.__version__ >= "2.0.0":
+        torch._logging.set_logs(dynamo=logging.ERROR)
+    else:
+        torch._dynamo.config.log_level = logging.ERROR
     # save log file only to main process
     init_logger(
         accelerator,
