@@ -257,6 +257,7 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         )
 
         self.fusion_layer = nn.Linear(768 * 2, 768, False)
+        self.sim_loss_layer = nn.CosineEmbeddingLoss()
 
     def cached_model_kwargs(self, batch_size: int, model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         with torch.no_grad():
@@ -290,7 +291,9 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
 
         clip_out = self.clip(batch_size=len(x), images=images, texts=texts, embeddings=embeddings)
         # Cosine similarity
-        self.l_sim = F.cosine_similarity(clip_out, ctx_embeds)
+        self.l_sim = self.sim_loss_layer(
+            clip_out, ctx_embeds, torch.ones(clip_out.shape[0], device=clip_out.device)
+        )
         clip_out = self.fusion_layer(torch.cat([clip_out, ctx_embeds], dim=1))
         # clip_out = clip_out + ctx_embeds
         assert len(clip_out.shape) == 2 and clip_out.shape[0] == x.shape[0]

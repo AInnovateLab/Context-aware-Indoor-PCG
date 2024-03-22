@@ -143,9 +143,7 @@ def start_training_loop_steps(
                     loss_sim = point_e.module.get_sim_loss()
                 else:
                     loss_sim = point_e.get_sim_loss()
-                LOSS: torch.Tensor = (
-                    RF3D_LOSS.mean() + losses.mean() + loss_sim.mean() * sim_loss_weight
-                )
+                LOSS: torch.Tensor = RF3D_LOSS.mean() + losses.mean() + loss_sim * sim_loss_weight
 
                 # Backward
                 optimizer.zero_grad()

@@ -206,7 +206,9 @@ def main():
     #                     #
     #######################
     point_e_config = MODEL_CONFIGS[args.point_e_model]
-    point_e_config["cache_dir"] = osp.join(args.project_top_dir, "cache", "point_e_model")
+    point_e_config["cache_dir"] = osp.join(
+        osp.dirname(__file__), "..", "..", "cache", "point_e_model"
+    )
     point_e_config["n_ctx"] = args.points_per_object
     with accelerator.local_main_process_first():
         point_e = model_from_config(point_e_config, device)

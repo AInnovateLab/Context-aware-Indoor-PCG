@@ -8,6 +8,10 @@ import ssl
 import tempfile
 import urllib.request
 
+import requests
+
+proxy = {"HTTP_PROXY": "http://192.168.31.145:7890", "HTTPS_PROXY": "http://192.168.31.145:7890"}
+
 ssl._create_default_https_context = ssl._create_unverified_context
 
 BASE_URL = "http://kaldir.vc.in.tum.de/scannet/"
@@ -83,7 +87,10 @@ def download_file(url, out_file):
         fh, out_file_tmp = tempfile.mkstemp(dir=out_dir)
         f = os.fdopen(fh, "w")
         f.close()
-        urllib.request.urlretrieve(url, out_file_tmp)
+        # urllib.request.urlretrieve(url, out_file_tmp)
+        file = requests.get(url, proxies=proxy)
+        with open(out_file_tmp, "wb") as f:
+            f.write(file.content)
         os.rename(out_file_tmp, out_file)
     else:
         print("WARNING: skipping download of existing file " + out_file)
@@ -207,7 +214,7 @@ def main():
     print(TOS_URL)
     print("***")
     print("Press any key to continue, or CTRL-C to exit.")
-    key = input("")
+    # key = input("")
 
     if args.v1:
         global RELEASE
@@ -337,7 +344,7 @@ def main():
         )
         print("***")
         print("Press any key to continue, or CTRL-C to exit.")
-        key = input("")
+        # key = input("")
         if not args.v1 and ".sens" in file_types:
             print(
                 "Note: ScanNet v2 uses the same .sens files as ScanNet v1: Press 'n' to exclude downloading .sens files for each scan"
