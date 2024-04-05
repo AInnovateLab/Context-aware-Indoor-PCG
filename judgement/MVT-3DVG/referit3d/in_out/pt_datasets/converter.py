@@ -15,6 +15,7 @@ class Converter:
         # self.hook_sa = hook_sa
         # self.hook_po = hook_po
         # self.hook_train = hook_train
+        self.type_fn_hooks = {}
 
         # TODO - hook redefined
         if hook == "sa":
@@ -45,22 +46,24 @@ class Converter:
         self.register_type_fn(type_fn)
         return self.type_fn(*args)
 
-    def register_type_fn(self, type_fn_hook):
-        assert type_fn_hook in [
-            "_rlos",
-            "_rlgs",
-            "_rlrs",
-            "_glos",
-            "_glrs",
-            "_olgs",
-            "_ol_point_e_only",
-        ]
-        self.type_fn_hook = type_fn_hook
-        # TODO - 如果不用if，怎么把字符串作为hook来注册函数啊？eval会不会被骂啊
-        self.type_fn = eval(self.type_fn_hook)
+    @classmethod
+    def register_type_fn(cls, type_fn_hook):
+        cls.type_fn_hook = type_fn_hook
+
+        def decorator(func):
+            cls.type_fn_hooks[type_fn_hook] = func
+            return func
+
+        return decorator
+
+    @classmethod
+    def type_fn(cls, type_fn_hook):
+        assert type_fn_hook in cls.type_fn_hooks, f"Type function {type_fn_hook} not found."
+        return cls.type_fn_hooks[type_fn_hook]()
 
 
-def _rlos(self, box_info, context, hook_entry):
+@Converter.register_type_fn("rlos")
+def _rlos(box_info, context, hook_entry):
     # random loc + ours shape
     # first get the bbox of the entire scene
     scene_bbox = {
@@ -80,7 +83,8 @@ def _rlos(self, box_info, context, hook_entry):
     return hook_xyz
 
 
-def _rlgs(self, box_info, context):
+@Converter.register_type_fn("rlgs")
+def _rlgs(box_info, context):
     # random loc + GT shape
     # first get the bbox of the entire scene
     scene_bbox = {
@@ -102,7 +106,8 @@ def _rlgs(self, box_info, context):
     return hook_xyz
 
 
-def _rlrs(self):
+@Converter.register_type_fn("rlrs")
+def _rlrs():
     # random loc & random shape
     hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
     scene_bbox = {
@@ -122,7 +127,8 @@ def _rlrs(self):
     return hook_xyz
 
 
-def _glos(self, box_info):
+@Converter.register_type_fn("glos")
+def _glos(box_info):
     # GT Loc & Ours shape
     hook_shape = hook_entry["objs"][0][..., :3]  # [P, 3]
     GT_loc = box_info[target_pos, :3]  # [3,]
@@ -133,7 +139,8 @@ def _glos(self, box_info):
     return hook_xyz
 
 
-def _glrs(self, box_info):
+@Converter.register_type_fn("glrs")
+def _glrs(box_info):
     # GT Loc & Random shape
     hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
     GT_loc = box_info[target_pos, :3]  # [3,]
@@ -141,7 +148,8 @@ def _glrs(self, box_info):
     return hook_xyz
 
 
-def _olgs(self, box_info):
+@Converter.register_type_fn("olgs")
+def _olgs(box_info):
     # Ours Loc & GT shape
     GT_shape = samples[target_pos][..., :3]  # [P, 3]
     GT_shape -= box_info[target_pos, :3][None]  # [P, 3]
@@ -149,7 +157,8 @@ def _olgs(self, box_info):
     return hook_xyz
 
 
-def _ol_point_e_only(self, box_info):
+@Converter.register_type_fn("ol_point_e_only")
+def _ol_point_e_only(box_info):
     for hook_entry_po in self.hook_data_po:
         if hook_entry_po["stimulus_id"] == stimulus_id and hook_entry_po["prompt"] == gtext:
             break
