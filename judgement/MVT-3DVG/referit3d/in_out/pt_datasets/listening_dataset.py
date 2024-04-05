@@ -2,6 +2,7 @@ import pickle
 from functools import partial
 
 import numpy as np
+from converter import Converter
 from torch.utils.data import Dataset
 from transformers import DistilBertModel, DistilBertTokenizer
 
@@ -34,6 +35,7 @@ class ListeningDataset(Dataset):
         object_transformation=None,
         visualization=False,
         hook_sa=False,
+        data_path="/home/link/github/Instruct-Replacement/tmp_lyy_saves/fps_axisnorm_rr4_sr3d/objs.pkl",
     ):
         self.references = references
         self.scans = scans
@@ -44,22 +46,19 @@ class ListeningDataset(Dataset):
         self.class_to_idx = class_to_idx
         self.visualization = visualization
         self.object_transformation = object_transformation
+        self.data_path = data_path
         self.hook_sa = hook_sa
-        if hook_sa:
-            assert "utterance_generative" in self.references.columns
-            print("Loading the hooked data...")
-            # load the hooked data
-            with open(
-                "/home/link/github/Instruct-Replacement/tmp_lyy_saves/fps_axisnorm_rr4_sr3d/objs.pkl",
-                "rb",
-            ) as fp:
-                self.hook_data = pickle.load(fp)
+        # TODO - add necessary args
 
-            # with open(
-            #     "/home/link/github/Instruct-Replacement/tmp_lyy_saves/point_e_only/objs.pkl.bak",
-            #     "rb",
-            # ) as fp:
-            #     self.hook_data_po = pickle.load(fp)
+        self.converter = Converter(
+            self.hook_sa,
+            self.data_path,
+        )
+
+        # TODO - register train or test - 还没写好, 目前只有test
+
+        # TODO - register certain type_fn
+        # self.converter.register_type_fn(some_hook)
 
         if not check_segmented_object_order(scans):
             raise ValueError
@@ -166,100 +165,14 @@ class ListeningDataset(Dataset):
             else:
                 raise ValueError("Cannot find the hooked data for this sample.")
 
-            # for hook_entry_po in self.hook_data_po:
-            #     if (
-            #         hook_entry_po["stimulus_id"] == stimulus_id
-            #         and hook_entry_po["prompt"] == gtext
-            #     ):
-            #         break
-            # else:
-            #     raise ValueError("Cannot find the hooked data for this sample.")
-
             # hook xyz
             # hook_xyz = hook_entry["pred_xyz"][0]  # [P, 3]
-
-            # random loc + ours shape
-            # first get the bbox of the entire scene
-            # scene_bbox = {
-            #     "max_x": box_info[: len(context), 0].max(),
-            #     "min_x": box_info[: len(context), 0].min(),
-            #     "max_y": box_info[: len(context), 1].max(),
-            #     "min_y": box_info[: len(context), 1].min(),
-            #     "max_z": box_info[: len(context), 2].max(),
-            #     "min_z": box_info[: len(context), 2].min(),
-            # }
-            # random_xyz = np.random.uniform(
-            #     low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
-            #     high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
-            #     size=(3,),
-            # )  # [3,]
-            # hook_xyz = (
-            #     hook_entry["objs"][0][..., :3] * hook_entry["radius"] + random_xyz[None]
-            # )  # [P, 3]
-
-            # random loc + GT shape
-            # first get the bbox of the entire scene
-            scene_bbox = {
-                "max_x": box_info[: len(context), 0].max(),
-                "min_x": box_info[: len(context), 0].min(),
-                "max_y": box_info[: len(context), 1].max(),
-                "min_y": box_info[: len(context), 1].min(),
-                "max_z": box_info[: len(context), 2].max(),
-                "min_z": box_info[: len(context), 2].min(),
-            }
-            random_xyz = np.random.uniform(
-                low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
-                high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
-                size=(3,),
-            )  # [3,]
-            GT_shape = samples[target_pos][..., :3]  # [P, 3]
-            GT_shape -= box_info[target_pos, :3][None]  # [P, 3]
-            hook_xyz = GT_shape + random_xyz[None]  # [P, 3]
 
             # random shape
             # hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
             # hook_xyz = hook_shape * hook_entry["radius"] + hook_entry["pred_xyz_raw"][0]  # [P, 3]
 
-            # random loc & random shape
-            # hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
-            # scene_bbox = {
-            #     "max_x": box_info[: len(context), 0].max(),
-            #     "min_x": box_info[: len(context), 0].min(),
-            #     "max_y": box_info[: len(context), 1].max(),
-            #     "min_y": box_info[: len(context), 1].min(),
-            #     "max_z": box_info[: len(context), 2].max(),
-            #     "min_z": box_info[: len(context), 2].min(),
-            # }
-            # random_xyz = np.random.uniform(
-            #     low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
-            #     high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
-            #     size=(3,),
-            # )  # [3,]
-            # hook_xyz = hook_shape * hook_entry["radius"] + random_xyz[None]  # [P, 3]
-
-            # GT Loc & Ours shape
-            # hook_shape = hook_entry["objs"][0][..., :3]  # [P, 3]
-            # GT_loc = box_info[target_pos, :3]  # [3,]
-            # hook_xyz = hook_shape * hook_entry["radius"] + GT_loc[None]  # [P, 3]
-            ## radius for pointe only model
-            # radius = box_info[target_pos, 3] ** (1 / 3)
-            # hook_xyz = hook_shape * radius + GT_loc[None]  # [P, 3]
-
-            # GT Loc & Random shape
-            hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
-            GT_loc = box_info[target_pos, :3]  # [3,]
-            hook_xyz = hook_shape * hook_entry["radius"] + GT_loc[None]  # [P, 3]
-
-            # Ours Loc & GT shape
-            # GT_shape = samples[target_pos][..., :3]  # [P, 3]
-            # GT_shape -= box_info[target_pos, :3][None]  # [P, 3]
-            # hook_xyz = GT_shape + hook_entry["pred_xyz_raw"][0]  # [P, 3]
-
-            # Ours Loc & Point-E only shape
-            # hook_shape_po = hook_entry_po["objs"][0][..., :3]  # [P, 3]
-            # # radius for pointe only model
-            # radius = box_info[target_pos, 3] ** (1 / 3)
-            # hook_xyz = hook_shape_po * radius + hook_entry["pred_xyz_raw"][0]  # [P, 3]
+            # TODO - reigister fn return hook xyz here
 
             hook_rgb = hook_entry["objs"][0][..., 3:6]  # [P, 3]
             assert hook_xyz.shape[0] == hook_rgb.shape[0]
@@ -362,6 +275,8 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb):
 
         #     assert np.sum(~d_set.apply(multiple_targets_utterance, axis=1)) == 0
 
+        hook_sa = args.hook_sa and split == "test" and args.mode == "evaluate"
+
         dataset = ListeningDataset(
             references=d_set,
             scans=scans,
@@ -372,7 +287,9 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb):
             class_to_idx=class_to_idx,
             object_transformation=object_transformation,
             visualization=args.mode == "evaluate",
-            hook_sa=args.hook_sa and split == "test" and args.mode == "evaluate",
+            hook_sa=hook_sa,
+            # TODO - Add necessary args
+            # TODO - Add data_path
         )
 
         seed = None
