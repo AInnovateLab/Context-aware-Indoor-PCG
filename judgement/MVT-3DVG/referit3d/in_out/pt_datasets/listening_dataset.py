@@ -1,5 +1,6 @@
 import pickle
 from functools import partial
+from typing import Literal, Optional
 
 import numpy as np
 from converter import Converter
@@ -34,8 +35,9 @@ class ListeningDataset(Dataset):
         class_to_idx=None,
         object_transformation=None,
         visualization=False,
-        hook_sa=False,
-        data_path="/home/link/github/Instruct-Replacement/tmp_lyy_saves/fps_axisnorm_rr4_sr3d/objs.pkl",
+        hook_type: Literal[False, "sa", "po", "train"] = False,
+        hook_type_fn_name: Optional[str] = None,
+        hook_data_path="/home/link/github/Instruct-Replacement/tmp_lyy_saves/fps_axisnorm_rr4_sr3d/objs.pkl",
     ):
         self.references = references
         self.scans = scans
@@ -46,19 +48,18 @@ class ListeningDataset(Dataset):
         self.class_to_idx = class_to_idx
         self.visualization = visualization
         self.object_transformation = object_transformation
-        self.data_path = data_path
-        self.hook_sa = hook_sa
+        self.hook_data_path = hook_data_path
+        self.hook_type = hook_type
+        self.hook_type_fn_name = hook_type_fn_name
         # TODO - add necessary args
 
+        # Hook datasets
         self.converter = Converter(
-            self.hook_sa,
-            self.data_path,
+            self.hook_data_path,
+            self.hook_type,
+            self.hook_type_fn_name,
         )
-
-        # TODO - register train or test - 还没写好, 目前只有test
-
-        # TODO - register certain type_fn
-        # self.converter.register_type_fn(some_hook)
+        self.references, self.scans = self.converter.modify_dataset(self.references, self.scans)
 
         if not check_segmented_object_order(scans):
             raise ValueError
@@ -144,45 +145,6 @@ class ListeningDataset(Dataset):
         # box_corners = np.zeros((self.max_context_size, 8, 3))
         # box_corners[: len(context)] = [o.get_bbox().corners for o in context]
 
-        # TODO: hook the SA data here
-        if self.hook_sa:
-            # self.hook_data = [
-            #     {
-            #         "prompt": "",
-            #         "objs": list of numpy of shape [P, 6],
-            #         "ref": numpy of shape [P, 6],
-            #         "stimulus_id": str,
-            #         "class": int,
-            #         "class_str": str,
-            #         "pred_xyz_raw": numpy of shape [5, 3] located in norm axis,
-            #         "pred_xyz": numpy of shape [5, P, 3] located in scene,
-            #         "radius": numpy of shape [P, 1] with all same value,
-            #     }
-            # ]
-            for hook_entry in self.hook_data:
-                if hook_entry["stimulus_id"] == stimulus_id and hook_entry["prompt"] == gtext:
-                    break
-            else:
-                raise ValueError("Cannot find the hooked data for this sample.")
-
-            # hook xyz
-            # hook_xyz = hook_entry["pred_xyz"][0]  # [P, 3]
-
-            # random shape
-            # hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
-            # hook_xyz = hook_shape * hook_entry["radius"] + hook_entry["pred_xyz_raw"][0]  # [P, 3]
-
-            # TODO - reigister fn return hook xyz here
-
-            hook_rgb = hook_entry["objs"][0][..., 3:6]  # [P, 3]
-            assert hook_xyz.shape[0] == hook_rgb.shape[0]
-            hook_target_pc = np.concatenate([hook_xyz, hook_rgb], axis=-1)  # [P, 6]
-            samples[target_pos] = hook_target_pc
-            # hook bbox
-            c = (hook_xyz.max(axis=0) + hook_xyz.min(axis=0)) / 2.0  # [3,]
-            box_info[target_pos, :3] = c
-            box_info[target_pos, 3] = (hook_xyz.max(axis=0) - hook_xyz.min(axis=0)).prod()
-
         if self.object_transformation is not None:
             samples = self.object_transformation(samples)
 
@@ -233,13 +195,16 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb):
 
     data_loaders = dict()
     is_train = referit_data["is_train"]
-    splits = ["train", "test"]
+    splits = [
+        ("train", args.hook_type if args.hook_type == "train" else False),
+        ("test", args.hook_type if args.hook_type in ("sa", "po") else False),
+    ]
 
     object_transformation = partial(
         mean_rgb_unit_norm_transform, mean_rgb=mean_rgb, unit_norm=args.unit_sphere_norm
     )
 
-    for split in splits:
+    for split, hook_type in splits:
         mask = is_train if split == "train" else ~is_train
         d_set = referit_data[mask]
         d_set.reset_index(drop=True, inplace=True)
@@ -275,8 +240,6 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb):
 
         #     assert np.sum(~d_set.apply(multiple_targets_utterance, axis=1)) == 0
 
-        hook_sa = args.hook_sa and split == "test" and args.mode == "evaluate"
-
         dataset = ListeningDataset(
             references=d_set,
             scans=scans,
@@ -287,9 +250,9 @@ def make_data_loaders(args, referit_data, vocab, class_to_idx, scans, mean_rgb):
             class_to_idx=class_to_idx,
             object_transformation=object_transformation,
             visualization=args.mode == "evaluate",
-            hook_sa=hook_sa,
-            # TODO - Add necessary args
-            # TODO - Add data_path
+            hook_data_path=args.hook_data_path,
+            hook_type=hook_type,
+            hook_type_fn_name=args.hook_type_fn_name,
         )
 
         seed = None

@@ -1,90 +1,114 @@
 import pickle
+from typing import Dict, List, Literal, Optional, Tuple
 
 import numpy as np
+import pandas as pd
+
+from ..scannet_scan import ScannetScan
 
 
 class Converter:
+    _hook_functions = dict()
+
     def __init__(
         self,
-        hook,
         data_path,
+        hook_type: Literal[False, "sa", "po", "train"],
+        hook_type_fn_name: Optional[str] = None,
     ):
-        # self.args = args
-
-        # TODO - references?
-        # self.hook_sa = hook_sa
-        # self.hook_po = hook_po
-        # self.hook_train = hook_train
-        self.type_fn_hooks = {}
-
-        # TODO - hook redefined
-        if hook == "sa":
-            assert "utterance_generative" in self.references.columns
-            print("Loading the hooked data...")
+        self.hook_type = hook_type
+        self.hook_type_fn_name = hook_type_fn_name
+        if hook_type == "sa":
             # load the hooked data
+            assert self.hook_type_fn_name is not None, "Hook type function name is required for SA."
             with open(
                 data_path,
                 "rb",
             ) as fp:
                 self.hook_data = pickle.load(fp)
 
-        elif hook == "po":
+        elif hook_type == "po":
             with open(
                 data_path,
                 "rb",
             ) as fp:
                 self.hook_data_po = pickle.load(fp)
 
-        elif hook == "train":
+        elif hook_type == "train":
             # TODO - trainset modifying hook
             pass
 
-    def modify_trainset(self):
-        pass
-
-    def modify_testset(self, type_fn, *args):
-        self.register_type_fn(type_fn)
-        return self.type_fn(*args)
+    def modify_dataset(
+        self,
+        references: pd.DataFrame,
+        scans: Dict[str, ScannetScan],
+    ) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
+        """
+        Args:
+            references (pd.DataFrame): The references dataframe.
+            scans (Dict[str, ScannetScan]): The scans dictionary.
+        """
+        if self.hook_type == False:
+            # Do nothing.
+            return references, scans
+        elif self.hook_type == "sa":
+            assert "utterance" in self.references.columns
+            return self.type_fn(self.hook_type_fn_name)(self, references=references, scans=scans)
+        elif self.hook_type == "po":
+            # TODO
+            pass
+        elif self.hook_type == "train":
+            # TODO
+            pass
+        else:
+            raise ValueError(f"Hook type {self.hook_type} not found.")
 
     @classmethod
-    def register_type_fn(cls, type_fn_hook):
-        cls.type_fn_hook = type_fn_hook
-
+    def register_type_fn(cls, type_fn_hook_name: str):
         def decorator(func):
-            cls.type_fn_hooks[type_fn_hook] = func
+            cls._hook_functions[type_fn_hook_name] = func
             return func
 
         return decorator
 
     @classmethod
-    def type_fn(cls, type_fn_hook):
-        assert type_fn_hook in cls.type_fn_hooks, f"Type function {type_fn_hook} not found."
-        return cls.type_fn_hooks[type_fn_hook]()
+    def type_fn(cls, type_fn_hook_name: str):
+        assert (
+            type_fn_hook_name in cls._hook_functions
+        ), f"Type function {type_fn_hook_name} not found."
+        return cls._hook_functions[type_fn_hook_name]
 
 
+# FIXME: All functions below is wrong.
 @Converter.register_type_fn("rlos")
-def _rlos(box_info, context, hook_entry):
+def _rlos(
+    converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
+) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
     # random loc + ours shape
     # first get the bbox of the entire scene
-    scene_bbox = {
-        "max_x": box_info[: len(context), 0].max(),
-        "min_x": box_info[: len(context), 0].min(),
-        "max_y": box_info[: len(context), 1].max(),
-        "min_y": box_info[: len(context), 1].min(),
-        "max_z": box_info[: len(context), 2].max(),
-        "min_z": box_info[: len(context), 2].min(),
-    }
-    random_xyz = np.random.uniform(
-        low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
-        high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
-        size=(3,),
-    )  # [3,]
-    hook_xyz = hook_entry["objs"][0][..., :3] * hook_entry["radius"] + random_xyz[None]  # [P, 3]
-    return hook_xyz
+
+    # scene_bbox = {
+    #     "max_x": box_info[: len(context), 0].max(),
+    #     "min_x": box_info[: len(context), 0].min(),
+    #     "max_y": box_info[: len(context), 1].max(),
+    #     "min_y": box_info[: len(context), 1].min(),
+    #     "max_z": box_info[: len(context), 2].max(),
+    #     "min_z": box_info[: len(context), 2].min(),
+    # }
+    # random_xyz = np.random.uniform(
+    #     low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
+    #     high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
+    #     size=(3,),
+    # )  # [3,]
+    # hook_xyz = hook_entry["objs"][0][..., :3] * hook_entry["radius"] + random_xyz[None]  # [P, 3]
+    # return hook_xyz
+
+    # TODO: modify the references and scans
+    return references, scans
 
 
 @Converter.register_type_fn("rlgs")
-def _rlgs(box_info, context):
+def _rlgs(converter: Converter, box_info, context):
     # random loc + GT shape
     # first get the bbox of the entire scene
     scene_bbox = {

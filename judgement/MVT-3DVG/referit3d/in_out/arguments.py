@@ -76,8 +76,9 @@ def parse_arguments(notebook_options=None):
     )
     parser.add_argument("--min-word-freq", type=int, default=3)
     parser.add_argument("--max-test-objects", type=int, default=88)
-    parser.add_argument("--hook-sa", action="store_true")
-
+    parser.add_argument("--hook-type", choices=[False, "sa", "po", "train"], default=False)
+    parser.add_argument("--hook-type-fn-name", type=str, default=None)
+    parser.add_argument("--hook-data-path", type=str, default=None)
     #
     # Training arguments
     #
