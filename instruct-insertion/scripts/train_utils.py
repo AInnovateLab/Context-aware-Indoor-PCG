@@ -92,6 +92,7 @@ def start_training_loop_steps(
     current_global_steps = start_global_steps
     gradient_acc_counter = 0
     sim_loss_weight = args.sim_loss_weight
+    sim_loss_crit = nn.CosineEmbeddingLoss()
     while True:
         for batch in tqdm.tqdm(
             data_loader,
@@ -121,6 +122,7 @@ def start_training_loop_steps(
                         LANG_LOGITS,
                         LOCATE_PREDS,
                         pred_xyz,
+                        lang_infos
                     ) = MVT3DVG(batch4mvt)
                 else:
                     ctx_embeds = torch.zeros((B, C), device=device)
@@ -128,6 +130,7 @@ def start_training_loop_steps(
                     CLASS_LOGITS = torch.zeros((B, N, n_classes), device=device)
                     LANG_LOGITS = torch.zeros((B, C), device=device)
                     LOCATE_PREDS = torch.zeros((B, 4), device=device)
+                    lang_infos = torch.zeros((B, 1, 768), device=device)
                     pred_xyz = None
 
                 # NOTE - This is the point_e part
@@ -139,11 +142,16 @@ def start_training_loop_steps(
 
                 # Here we add the tensor from MVT3DVG to point_e
                 losses = sampler.loss_texts(ctx_embeds, reals, cond, reals.shape[0])
-                if isinstance(point_e, DistributedDataParallel):
-                    loss_sim = point_e.module.get_sim_loss()
+                
+                if not args.point_e_only:
+                    if isinstance(point_e, DistributedDataParallel):
+                        clip_output = point_e.module.get_clip_output()
+                    else:
+                        clip_output = point_e.get_clip_output()
+                    # print('clip_output: ', clip_output.shape, 'lang_info: ', lang_infos.shape)
+                    LOSS: torch.Tensor = RF3D_LOSS.mean() + losses.mean() + sim_loss_crit(clip_output, lang_infos[:, 0, :], torch.ones(clip_output.shape[0], device=clip_output.device)) * sim_loss_weight
                 else:
-                    loss_sim = point_e.get_sim_loss()
-                LOSS: torch.Tensor = RF3D_LOSS.mean() + losses.mean() + loss_sim * sim_loss_weight
+                    LOSS: torch.Tensor = RF3D_LOSS.mean() + losses.mean()
 
                 # Backward
                 optimizer.zero_grad()
@@ -233,7 +241,7 @@ def evaluate_on_dataset(
         batch4mvt.pop("scan_id")
         batch4mvt.pop("stimulus_id")
         batch4mvt.pop("text")
-        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = MVT3DVG(batch4mvt)
+        ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz, lang_infos = MVT3DVG(batch4mvt)
 
         ######################
         #                    #

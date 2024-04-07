@@ -390,6 +390,7 @@ class ReferIt3DNet_transformer(nn.Module):
                 LANG_LOGITS.detach(),
                 LOCATE_PREDS.detach(),
                 (pred_xy, pred_z, pred_radius),
+                lang_infos
             )
         else:
             return (
@@ -399,6 +400,7 @@ class ReferIt3DNet_transformer(nn.Module):
                 LANG_LOGITS.detach(),
                 LOCATE_PREDS.detach(),
                 None,
+                lang_infos
             )
 
     def forward_obj_cls(self, obj_points: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:

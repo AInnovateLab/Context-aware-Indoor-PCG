@@ -256,15 +256,17 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
             mvt_feature_dim, self.clip.feature_dim, device=device, dtype=dtype
         )
 
+        # Without lang infos
         self.fusion_layer = nn.Linear(768 * 2, 768, False)
-        self.sim_loss_layer = nn.CosineEmbeddingLoss()
+        # With lang infos
+        # self.fusion_layer = nn.Linear(768 * 3, 768, False)
 
     def cached_model_kwargs(self, batch_size: int, model_kwargs: Dict[str, Any]) -> Dict[str, Any]:
         with torch.no_grad():
             return dict(embeddings=self.clip(batch_size, **model_kwargs))
 
-    def get_sim_loss(self):
-        return self.l_sim
+    def get_clip_output(self):
+        return self.clip_out
 
     def forward(
         self,
@@ -290,12 +292,13 @@ class CLIPImagePointDiffusionTransformer(PointDiffusionTransformer):
         ctx_embeds = self.input_feat_proj(ctx_embeds)
 
         clip_out = self.clip(batch_size=len(x), images=images, texts=texts, embeddings=embeddings)
-        # Cosine similarity
-        self.l_sim = self.sim_loss_layer(
-            clip_out, ctx_embeds, torch.ones(clip_out.shape[0], device=clip_out.device)
-        )
+        
+        self.clip_out = clip_out
+        # Without lang infos
         clip_out = self.fusion_layer(torch.cat([clip_out, ctx_embeds], dim=1))
-        # clip_out = clip_out + ctx_embeds
+        # With lang infos
+        # clip_out = self.fusion_layer(torch.cat([clip_out, ctx_embeds, self.lang_info], dim=1))
+
         assert len(clip_out.shape) == 2 and clip_out.shape[0] == x.shape[0]
 
         if self.training:
