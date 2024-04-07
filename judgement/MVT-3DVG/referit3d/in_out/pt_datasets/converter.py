@@ -63,8 +63,7 @@ class Converter:
             assert "utterance" in self.references.columns
             return self.type_fn(self.hook_type_fn_name)(self, references=references, scans=scans)
         elif self.hook_type == "po":
-            # TODO
-            pass
+            return ol_point_e_only(self, references=references, scans=scans)
         elif self.hook_type == "train":
             # TODO
             pass
@@ -112,12 +111,12 @@ def _rlos(
             "max_z": scan.pc[:, 2].max(),
             "min_z": scan.pc[:, 2].min(),
         }
-        random_xyz = np.random.uniform(
+        random_loc = np.random.uniform(
             low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
             high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
             size=(3,),
         )  # [3,]
-        hook_xyz = datum["objs"][0][..., :3] * datum["radius"] + random_xyz[None]  # [P, 3]
+        hook_xyz = datum["objs"][0][..., :3] * datum["radius"] + random_loc[None]  # [P, 3]
         obj.pc = hook_xyz
     return references, scans
 
@@ -188,24 +187,42 @@ def _glrs(box_info):
 
 
 @Converter.register_type_fn("olgs")
-def _olgs(box_info):
-    # Ours Loc & GT shape
-    GT_shape = samples[target_pos][..., :3]  # [P, 3]
-    GT_shape -= box_info[target_pos, :3][None]  # [P, 3]
-    hook_xyz = GT_shape + hook_entry["pred_xyz_raw"][0]  # [P, 3]
-    return hook_xyz
+def _olgs(
+    converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
+) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
+    """(SA) Our Loc & GT Shape."""
+    data = converter.hook_data_sa
+    assert data is not None
+    for datum in data:
+        # stimulus_id -> scan_id -> scan
+        split_results = decode_stimulus_string(datum["stimulus_id"])
+        scan_id, target_id = split_results[0], split_results[3]
+        scan = scans.get(scan_id)
+        if scan is None:
+            continue
+        obj: ThreeDObject = scan.three_d_objects[target_id]
+        origin_pc = obj.get_pc()
+        obj_center = origin_pc.mean(axis=0)
+        obj.pc = obj.pc - obj_center[None] + datum["pred_xyz_raw"][0][None]
+    return references, scans
 
 
-@Converter.register_type_fn("ol_point_e_only")
-def _ol_point_e_only(box_info):
-    for hook_entry_po in self.hook_data_po:
-        if hook_entry_po["stimulus_id"] == stimulus_id and hook_entry_po["prompt"] == gtext:
-            break
-        else:
-            raise ValueError("Cannot find the hooked data for this sample.")
-    # Ours Loc & Point-E only shape
-    hook_shape_po = hook_entry_po["objs"][0][..., :3]  # [P, 3]
-    # radius for pointe only model
-    radius = box_info[target_pos, 3] ** (1 / 3)
-    hook_xyz = hook_shape_po * radius + hook_entry["pred_xyz_raw"][0]  # [P, 3]
-    return hook_xyz
+def ol_point_e_only(
+    converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
+) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
+    for datum in converter.hook_data_po:
+        # stimulus_id -> scan_id -> scan
+        split_results = decode_stimulus_string(datum["stimulus_id"])
+        scan_id, target_id = split_results[0], split_results[3]
+        scan = scans.get(scan_id)
+        if scan is None:
+            continue
+        obj: ThreeDObject = scan.three_d_objects[target_id]
+        radius = obj.get_bbox().volume() ** (1 / 3)
+        origin_pc = obj.get_pc()
+        obj_center = origin_pc.mean(axis=0)
+
+        po_shape = datum["objs"][0][..., :3]
+
+        obj.pc = po_shape * radius + obj_center[None]
+    return references, scans
