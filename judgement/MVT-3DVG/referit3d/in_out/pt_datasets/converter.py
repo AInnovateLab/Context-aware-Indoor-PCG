@@ -102,7 +102,7 @@ def _rlos(
             continue
         obj: ThreeDObject = scan.three_d_objects[target_id]
         # NOTE: color may be incorrect
-        # get random pc
+        # get random location
         scene_bbox = {
             "max_x": scan.pc[:, 0].max(),
             "min_x": scan.pc[:, 0].min(),
@@ -122,68 +122,130 @@ def _rlos(
 
 
 @Converter.register_type_fn("rlgs")
-def _rlgs(converter: Converter, box_info, context):
+def _rlgs(
+    converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
+) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
     # random loc + GT shape
     # first get the bbox of the entire scene
-    scene_bbox = {
-        "max_x": box_info[: len(context), 0].max(),
-        "min_x": box_info[: len(context), 0].min(),
-        "max_y": box_info[: len(context), 1].max(),
-        "min_y": box_info[: len(context), 1].min(),
-        "max_z": box_info[: len(context), 2].max(),
-        "min_z": box_info[: len(context), 2].min(),
-    }
-    random_xyz = np.random.uniform(
-        low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
-        high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
-        size=(3,),
-    )  # [3,]
-    GT_shape = samples[target_pos][..., :3]  # [P, 3]
-    GT_shape -= box_info[target_pos, :3][None]  # [P, 3]
-    hook_xyz = GT_shape + random_xyz[None]  # [P, 3]
-    return hook_xyz
+
+    """(SA) Random Loc & Our Shape."""
+    data = converter.hook_data_sa
+    assert data is not None
+    for datum in data:
+        # stimulus_id -> scan_id -> scan
+        split_results = decode_stimulus_string(datum["stimulus_id"])
+        scan_id, target_id = split_results[0], split_results[3]
+        scan = scans.get(scan_id)
+        if scan is None:
+            continue
+        obj: ThreeDObject = scan.three_d_objects[target_id]
+        # NOTE: color may be incorrect
+        # get random
+        scene_bbox = {
+            "max_x": scan.pc[:, 0].max(),
+            "min_x": scan.pc[:, 0].min(),
+            "max_y": scan.pc[:, 1].max(),
+            "min_y": scan.pc[:, 1].min(),
+            "max_z": scan.pc[:, 2].max(),
+            "min_z": scan.pc[:, 2].min(),
+        }
+        random_xyz = np.random.uniform(
+            low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
+            high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
+            size=(3,),
+        )  # [3,]
+        origin_pc = obj.get_pc()
+        obj_center = origin_pc.mean(axis=0)
+        obj.pc = obj.pc - obj_center[None] + random_xyz[None]
+    return references, scans
 
 
 @Converter.register_type_fn("rlrs")
-def _rlrs():
+def _rlrs(
+    converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
+) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
     # random loc & random shape
-    hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
-    scene_bbox = {
-        "max_x": box_info[: len(context), 0].max(),
-        "min_x": box_info[: len(context), 0].min(),
-        "max_y": box_info[: len(context), 1].max(),
-        "min_y": box_info[: len(context), 1].min(),
-        "max_z": box_info[: len(context), 2].max(),
-        "min_z": box_info[: len(context), 2].min(),
-    }
-    random_xyz = np.random.uniform(
-        low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
-        high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
-        size=(3,),
-    )  # [3,]
-    hook_xyz = hook_shape * hook_entry["radius"] + random_xyz[None]  # [P, 3]
-    return hook_xyz
+    """(SA) Random Loc & Our Shape."""
+    data = converter.hook_data_sa
+    assert data is not None
+    for datum in data:
+        # stimulus_id -> scan_id -> scan
+        split_results = decode_stimulus_string(datum["stimulus_id"])
+        scan_id, target_id = split_results[0], split_results[3]
+        scan = scans.get(scan_id)
+        if scan is None:
+            continue
+        obj: ThreeDObject = scan.three_d_objects[target_id]
+        # NOTE: color may be incorrect
+        # get random
+        scene_bbox = {
+            "max_x": scan.pc[:, 0].max(),
+            "min_x": scan.pc[:, 0].min(),
+            "max_y": scan.pc[:, 1].max(),
+            "min_y": scan.pc[:, 1].min(),
+            "max_z": scan.pc[:, 2].max(),
+            "min_z": scan.pc[:, 2].min(),
+        }
+        random_xyz = np.random.uniform(
+            low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
+            high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
+            size=(3,),
+        )  # [3,]
+        obj_random_shape = np.random.uniform(
+            low=-1, high=1, size=(datum["objs"][0].shape[0], 3)
+        )  # [P, 3]
+        obj.pc = obj_random_shape * datum["radius"] + random_xyz
+    return references, scans
 
 
 @Converter.register_type_fn("glos")
-def _glos(box_info):
+def _glos(
+    converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
+) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
     # GT Loc & Ours shape
-    hook_shape = hook_entry["objs"][0][..., :3]  # [P, 3]
-    GT_loc = box_info[target_pos, :3]  # [3,]
-    hook_xyz = hook_shape * hook_entry["radius"] + GT_loc[None]  # [P, 3]
-    # radius for pointe only model
-    radius = box_info[target_pos, 3] ** (1 / 3)
-    hook_xyz = hook_shape * radius + GT_loc[None]  # [P, 3]
-    return hook_xyz
+    """(SA) Random Loc & Our Shape."""
+    data = converter.hook_data_sa
+    assert data is not None
+    for datum in data:
+        # stimulus_id -> scan_id -> scan
+        split_results = decode_stimulus_string(datum["stimulus_id"])
+        scan_id, target_id = split_results[0], split_results[3]
+        scan = scans.get(scan_id)
+        if scan is None:
+            continue
+        obj: ThreeDObject = scan.three_d_objects[target_id]
+        # NOTE: color may be incorrect
+        origin_pc = obj.get_pc()
+        gt_obj_center = origin_pc.mean(axis=0)
+        our_shape = datum["objs"][0][..., :3] * datum["radius"]  # [P, 3]
+        obj.pc = our_shape + gt_obj_center[None]
+    return references, scans
 
 
 @Converter.register_type_fn("glrs")
-def _glrs(box_info):
+def _glrs(
+    converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
+) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
     # GT Loc & Random shape
-    hook_shape = np.random.uniform(low=-0.8, high=0.8, size=(1024, 3))  # [P, 3]
-    GT_loc = box_info[target_pos, :3]  # [3,]
-    hook_xyz = hook_shape * hook_entry["radius"] + GT_loc[None]  # [P, 3]
-    return hook_xyz
+    """(SA) Random Loc & Our Shape."""
+    data = converter.hook_data_sa
+    assert data is not None
+    for datum in data:
+        # stimulus_id -> scan_id -> scan
+        split_results = decode_stimulus_string(datum["stimulus_id"])
+        scan_id, target_id = split_results[0], split_results[3]
+        scan = scans.get(scan_id)
+        if scan is None:
+            continue
+        obj: ThreeDObject = scan.three_d_objects[target_id]
+        # NOTE: color may be incorrect
+        origin_pc = obj.get_pc()
+        gt_obj_center = origin_pc.mean(axis=0)
+        obj_random_shape = np.random.uniform(
+            low=-1, high=1, size=(datum["objs"][0].shape[0], 3)
+        )  # [P, 3]
+        obj.pc = obj_random_shape + gt_obj_center[None]
+    return references, scans
 
 
 @Converter.register_type_fn("olgs")
