@@ -65,7 +65,7 @@ def parse_arguments(notebook_options=None):
     parser.add_argument(
         "--unit-sphere-norm",
         type=str2bool,
-        default=False,
+        default=True,
         help="Normalize each point-cloud to be in a unit sphere.",
     )
     parser.add_argument(

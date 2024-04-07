@@ -59,7 +59,8 @@ class ListeningDataset(Dataset):
             self.hook_type,
             self.hook_type_fn_name,
         )
-        self.references, self.scans = self.converter.modify_dataset(self.references, self.scans)
+        if self.converter.need_hook_dataset():
+            self.references, self.scans = self.converter.modify_dataset(self.references, self.scans)
 
         if not check_segmented_object_order(scans):
             raise ValueError
@@ -144,6 +145,19 @@ class ListeningDataset(Dataset):
         box_info[: len(context), 3] = [o.get_bbox().volume() for o in context]
         # box_corners = np.zeros((self.max_context_size, 8, 3))
         # box_corners[: len(context)] = [o.get_bbox().corners for o in context]
+
+        # NOTE: HOOK here
+        if self.converter.need_hook_getitem():
+            hook_results = self.converter.hook_getitem(box_info, samples, target_pos)
+            # `hook_xyz` should be Point-clouds in the original coords.
+            hook_xyz, hook_rgb = hook_results["hook_xyz"], hook_results["hook_rgb"]
+            assert hook_xyz.shape[0] == hook_rgb.shape[0]
+            hook_target_pc = np.concatenate([hook_xyz, hook_rgb], axis=-1)  # [P, 6]
+            samples[target_pos] = hook_target_pc
+            # hook bbox
+            box_centroid = (hook_xyz.max(axis=0) + hook_xyz.min(axis=0)) / 2.0  # [3,]
+            box_info[target_pos, :3] = box_centroid
+            box_info[target_pos, 3] = (hook_xyz.max(axis=0) - hook_xyz.min(axis=0)).prod()
 
         if self.object_transformation is not None:
             samples = self.object_transformation(samples)
