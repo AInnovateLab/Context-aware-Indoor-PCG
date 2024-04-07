@@ -4,7 +4,8 @@ from typing import Dict, List, Literal, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..scannet_scan import ScannetScan
+from ...data_generation.nr3d import decode_stimulus_string
+from ..scannet_scan import ScannetScan, ThreeDObject
 
 
 class Converter:
@@ -21,17 +22,24 @@ class Converter:
         if hook_type == "sa":
             # load the hooked data
             assert self.hook_type_fn_name is not None, "Hook type function name is required for SA."
-            with open(
-                data_path,
-                "rb",
-            ) as fp:
-                self.hook_data = pickle.load(fp)
+            # hook_data_sa = [
+            #     {
+            #         "prompt": "",
+            #         "objs": list of numpy of shape [P, 6],
+            #         "ref": numpy of shape [P, 6],
+            #         "stimulus_id": str,
+            #         "class": int,
+            #         "class_str": str,
+            #         "pred_xyz_raw": numpy of shape [5, 3] located in norm axis,
+            #         "pred_xyz": numpy of shape [5, P, 3] located in scene,
+            #         "radius": numpy of shape [P, 1] with all same value,
+            #     }
+            # ]
+            with open(data_path, "rb") as fp:
+                self.hook_data_sa = pickle.load(fp)
 
         elif hook_type == "po":
-            with open(
-                data_path,
-                "rb",
-            ) as fp:
+            with open(data_path, "rb") as fp:
                 self.hook_data_po = pickle.load(fp)
 
         elif hook_type == "train":
@@ -79,31 +87,38 @@ class Converter:
         return cls._hook_functions[type_fn_hook_name]
 
 
-# FIXME: All functions below is wrong.
 @Converter.register_type_fn("rlos")
 def _rlos(
     converter: Converter, references: pd.DataFrame, scans: Dict[str, ScannetScan]
 ) -> Tuple[pd.DataFrame, Dict[str, ScannetScan]]:
-    # random loc + ours shape
-    # first get the bbox of the entire scene
-
-    # scene_bbox = {
-    #     "max_x": box_info[: len(context), 0].max(),
-    #     "min_x": box_info[: len(context), 0].min(),
-    #     "max_y": box_info[: len(context), 1].max(),
-    #     "min_y": box_info[: len(context), 1].min(),
-    #     "max_z": box_info[: len(context), 2].max(),
-    #     "min_z": box_info[: len(context), 2].min(),
-    # }
-    # random_xyz = np.random.uniform(
-    #     low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
-    #     high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
-    #     size=(3,),
-    # )  # [3,]
-    # hook_xyz = hook_entry["objs"][0][..., :3] * hook_entry["radius"] + random_xyz[None]  # [P, 3]
-    # return hook_xyz
-
-    # TODO: modify the references and scans
+    """(SA) Random Loc & Our Shape."""
+    data = converter.hook_data_sa
+    assert data is not None
+    for datum in data:
+        # stimulus_id -> scan_id -> scan
+        split_results = decode_stimulus_string(datum["stimulus_id"])
+        scan_id, target_id = split_results[0], split_results[3]
+        scan = scans.get(scan_id)
+        if scan is None:
+            continue
+        obj: ThreeDObject = scan.three_d_objects[target_id]
+        # NOTE: color may be incorrect
+        # get random pc
+        scene_bbox = {
+            "max_x": scan.pc[:, 0].max(),
+            "min_x": scan.pc[:, 0].min(),
+            "max_y": scan.pc[:, 1].max(),
+            "min_y": scan.pc[:, 1].min(),
+            "max_z": scan.pc[:, 2].max(),
+            "min_z": scan.pc[:, 2].min(),
+        }
+        random_xyz = np.random.uniform(
+            low=[scene_bbox["min_x"], scene_bbox["min_y"], scene_bbox["min_z"]],
+            high=[scene_bbox["max_x"], scene_bbox["max_y"], scene_bbox["max_z"]],
+            size=(3,),
+        )  # [3,]
+        hook_xyz = datum["objs"][0][..., :3] * datum["radius"] + random_xyz[None]  # [P, 3]
+        obj.pc = hook_xyz
     return references, scans
 
 

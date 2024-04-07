@@ -19,25 +19,16 @@ sys.path.append(f"{osp.dirname(__file__)}/..")
 
 from openpoints.cpp.emd.emd import EarthMoverDistanceFunction
 
-# obj_pkl_data := [{
-#   "prompt":"",
-#   "objs": list of numpy of shape [P, 6],
-#   "ref": numpy of shape [P, 6],
-#   "stimulus_id": str,
-#   "class": int,
-#   "class_str": str,
-# }]
-
 # obj_pkl_data = [
 #     {
 #         "prompt": "",
-#         "objs": list of numpy of shape [P, 6],
-#         "ref": numpy of shape [P, 6],
+#         "objs": list of numpy of shape [P, 6], generated objects, default size 1.
+#         "ref": numpy of shape [P, 6], reference object points.
 #         "stimulus_id": str,
 #         "class": int,
 #         "class_str": str,
-#         "pred_xyz_raw": numpy of shape [5, P, 3] located in norm axis,
-#         "pred_xyz": numpy of shape [5, P, 3] located in scene,
+#         "pred_xyz_raw": numpy of shape [5, 3] located in norm axis, only the centroid offset
+#         "pred_xyz": numpy of shape [5, P, 3] located in scene, including all points
 #         "radius": numpy of shape [P, 1] with all same value,
 #     }
 # ]

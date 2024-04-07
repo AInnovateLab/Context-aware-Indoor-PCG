@@ -249,15 +249,15 @@ for _ in tqdm.tqdm(range(max_len)):
         if args.axis_norm:
             TOPK = 5
             pred_xy, pred_z, pred_radius = pred_xyz
-            pred_xy_topk_bins = pred_xy.topk(TOPK, dim=-1)[1]  # (B, 5)
-            # pred_z_topk_bins = pred_z.topk(5, dim=-1)[1]  # (B, 5)
-            pred_z_topk_bins = pred_z.argmax(dim=-1, keepdim=True).repeat(1, TOPK)  # (B, 5)
-            pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins  # (B, 5)
-            pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins  # (B, 5)
+            pred_xy_topk_bins = pred_xy.topk(TOPK, dim=-1)[1]  # (B, TOPK)
+            # pred_z_topk_bins = pred_z.topk(TOPK, dim=-1)[1]  # (B, TOPK)
+            pred_z_topk_bins = pred_z.argmax(dim=-1, keepdim=True).repeat(1, TOPK)  # (B, TOPK)
+            pred_x_topk_bins = pred_xy_topk_bins % args.axis_norm_bins  # (B, TOPK)
+            pred_y_topk_bins = pred_xy_topk_bins // args.axis_norm_bins  # (B, TOPK)
             pred_bins = torch.stack(
                 (pred_x_topk_bins, pred_y_topk_bins, pred_z_topk_bins), dim=-1
-            )  # (B, 5, 3)
-            pred_bins = (pred_bins.float() + 0.5) / args.axis_norm_bins  # (B, 5, 3)
+            )  # (B, TOPK, 3)
+            pred_bins = (pred_bins.float() + 0.5) / args.axis_norm_bins  # (B, TOPK, 3)
             (
                 min_box_center_axis_norm,  # (B, 3)
                 max_box_center_axis_norm,  # (B, 3)
@@ -268,7 +268,7 @@ for _ in tqdm.tqdm(range(max_len)):
             pred_topk_xyz = (
                 min_box_center_axis_norm[:, None]
                 + (max_box_center_axis_norm - min_box_center_axis_norm)[:, None] * pred_bins
-            )  # (B, 5, 3)
+            )  # (B, TOPK, 3)
 
             # print(P)
             # pred_radius = pred_radius.unsqueeze(-1).permute(0, 2, 1).repeat(1, 5, 1)  # (B, 5, 1)
@@ -276,7 +276,7 @@ for _ in tqdm.tqdm(range(max_len)):
             # pred_topk_xyz = torch.cat([pred_topk_xyz, pred_radius], dim=-1)  # (B, 5, 4)
 
             pred_xyz_real = last_pcs[:, :, :3] * pred_radius  # (B, P, 3)
-            pred_xyz_real = pred_xyz_real[:, None, :, :].repeat(1, 5, 1, 1) + pred_topk_xyz[
+            pred_xyz_real = pred_xyz_real[:, None, :, :].repeat(1, TOPK, 1, 1) + pred_topk_xyz[
                 :, :, None, :
             ].repeat(
                 1, 1, P, 1
@@ -284,6 +284,7 @@ for _ in tqdm.tqdm(range(max_len)):
             # print(pred_xyz_real.shape)
             # print(len(generated_objs))
         else:
+            # FIXME: DONT USE THIS. Already deprecated.
             # replace last_pcs with the real point cloud
             pred_box_center, pred_box_max_dist = LOCATE_PREDS[:, :3], LOCATE_PREDS[:, 3:4]
             # print(pred_box_max_dist.shape)

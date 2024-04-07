@@ -151,9 +151,6 @@ class ThreeDObject(object):
         bbox = self.get_axis_align_bbox()
         return bbox.plot(axis=axis)
 
-    def color(self):
-        return self.scan.color[self.points]
-
     def intersection(self, other, axis=2):
         bbox = self.get_bbox(axis_aligned=True)
         l_min, l_max = bbox.extrema[axis], bbox.extrema[axis + 3]
@@ -194,8 +191,8 @@ class ThreeDObject(object):
         xyz = self.get_pc(normalized=normalized_pc)
         color = self.color
 
-        n_points = len(self.points)
-        assert xyz.shape[0] == len(self.points)
+        n_points = xyz.shape[0]
+        # assert xyz.shape[0] == len(self.points)
 
         idx = np.random.choice(n_points, n_samples, replace=n_points < n_samples)
 
