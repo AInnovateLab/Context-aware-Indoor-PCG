@@ -3,16 +3,21 @@ import os
 import os.path as osp
 import pickle
 import sys
+from typing import Literal
 
 import accelerate
 import numpy as np
-import pyvista as pv
 import torch
 import tqdm
 from easydict import EasyDict as edict
-from termcolor import colored
 
 sys.path.append(os.path.join(os.getcwd(), ".."))
+from data.referit3d.in_out.neural_net_oriented import (
+    compute_auxiliary_data,
+    load_referential_data,
+    load_scan_related_data,
+    trim_scans_per_referit3d_data_,
+)
 from openpoints.cpp.emd.emd import earth_mover_distance
 from scripts.train_utils import move_batch_to_device_
 
@@ -21,6 +26,7 @@ device = accelerator.device
 
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
+# NOTE: Modify here.
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
@@ -74,14 +80,8 @@ PROJECT_TOP_DIR = "../../tmp_link_saves"
 with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
     args = edict(json.load(f))
 
-from data.referit3d.in_out.neural_net_oriented import (
-    compute_auxiliary_data,
-    load_referential_data,
-    load_scan_related_data,
-    trim_scans_per_referit3d_data_,
-)
-
 # load data
+# NOTE: Modify here.
 # SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
 SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
 REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
@@ -91,14 +91,18 @@ referit_data = load_referential_data(args, args.referit3D_file, scans_split)
 all_scans_in_dict = trim_scans_per_referit3d_data_(referit_data, all_scans_in_dict)
 mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
 
-with open("sr3d_object_dict_testset.pkl", "rb") as f:
-    object_dict = pickle.load(f)
-# {key: (B, P, 3)}
-all_obj_cls = []
-for key, value in object_dict.items():
-    for _ in range(value.shape[0]):
-        all_obj_cls.append(key)
-all_objects = torch.cat(list(object_dict.values()), dim=0)
+MAX_SAMPLE_LEN = 4000  # Max number of samples to generate.
+DATASET_TYPE: Literal["train", "test"] = "test"  # "train" or "test"
+
+# NOTE: useless code. may be removed.
+# with open("sr3d_object_dict_testset.pkl", "rb") as f:
+#     object_dict = pickle.load(f)
+# # {key: (B, P, 3)}
+# all_obj_cls = []
+# for key, value in object_dict.items():
+#     for _ in range(value.shape[0]):
+#         all_obj_cls.append(key)
+# all_objects = torch.cat(list(object_dict.values()), dim=0)
 
 from transformers import BertTokenizer
 
@@ -181,14 +185,12 @@ cls_top5_correct_for_each_class = {}
 
 emd = earth_mover_distance()
 
-max_len = min(len(data_loaders["test"]), 4000)
-it = iter(data_loaders["test"])
+max_len = min(len(data_loaders[DATASET_TYPE]), MAX_SAMPLE_LEN)
+it = iter(data_loaders[DATASET_TYPE])
 # Reverse to get idx_to_class
 idx_to_class = {v: k for k, v in class_to_idx.items()}
 
-objs = (
-    []
-)  # [{prompt:"", "objs": list of numpy, "ref": numpy, "stimulus_id": str, "class": int, "class_str": str, },]
+objs = []
 for _ in tqdm.tqdm(range(max_len)):
     batch = next(it)
 
@@ -285,6 +287,7 @@ for _ in tqdm.tqdm(range(max_len)):
             # print(len(generated_objs))
         else:
             # FIXME: DONT USE THIS. Already deprecated.
+            raise RuntimeError("Deprecated code.")
             # replace last_pcs with the real point cloud
             pred_box_center, pred_box_max_dist = LOCATE_PREDS[:, :3], LOCATE_PREDS[:, 3:4]
             # print(pred_box_max_dist.shape)
@@ -316,17 +319,13 @@ for _ in tqdm.tqdm(range(max_len)):
 print("Done!")
 
 # create new folder to store the results
-tgt_folder = PROJECT_DIR.split("/")[-1]
-tgt_folder = os.path.join("/home/lyy/workspace/Instruct-Replacement/tmp_lyy_saves", tgt_folder)
-print("Result save to", tgt_folder)
-if not os.path.exists(tgt_folder):
-    os.makedirs(tgt_folder)
-
-with open(os.path.join(tgt_folder, "objs.pkl"), "wb") as f:
+with open(osp.join(PROJECT_DIR, "objs.pkl"), "wb") as f:
     pickle.dump(objs, f)
 print("Save success!")
 
+try:
+    import im_remind
 
-import im_remind
-
-im_remind.send_tg_msg("Done! Please check")
+    im_remind.send_tg_msg("Done! Please check the results.")
+except ImportError:
+    pass
