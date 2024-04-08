@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import tqdm
 from easydict import EasyDict as edict
+from transformers import BertTokenizer
 
 sys.path.append(os.path.join(os.getcwd(), ".."))
 from data.referit3d.in_out.neural_net_oriented import (
@@ -24,6 +25,11 @@ from scripts.train_utils import move_batch_to_device_
 accelerator = accelerate.Accelerator()
 device = accelerator.device
 
+################################
+#                              #
+#    Data & Hyperparameters    #
+#                              #
+################################
 # load existing args
 PROJECT_TOP_DIR = "../../tmp_link_saves"
 # NOTE: Modify here.
@@ -82,8 +88,8 @@ with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
 
 # load data
 # NOTE: Modify here.
-# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
-SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
+SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
+# SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
 REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
 all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(SCANNET_PKL_FILE)
 referit_data = load_referential_data(args, args.referit3D_file, scans_split)
@@ -93,19 +99,13 @@ mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
 
 MAX_SAMPLE_LEN = 4000  # Max number of samples to generate.
 DATASET_TYPE: Literal["train", "test"] = "test"  # "train" or "test"
+TOPK = 5  # Top-k for axis_norm model
 
-# NOTE: useless code. may be removed.
-# with open("sr3d_object_dict_testset.pkl", "rb") as f:
-#     object_dict = pickle.load(f)
-# # {key: (B, P, 3)}
-# all_obj_cls = []
-# for key, value in object_dict.items():
-#     for _ in range(value.shape[0]):
-#         all_obj_cls.append(key)
-# all_objects = torch.cat(list(object_dict.values()), dim=0)
-
-from transformers import BertTokenizer
-
+###############
+#             #
+#    Model    #
+#             #
+###############
 # prepare tokenizer
 tokenizer = BertTokenizer.from_pretrained(args.bert_pretrain_path)
 # Prepare the Listener
@@ -171,10 +171,12 @@ sampler = PointCloudSampler(
     s_churn=[3],
 )
 
-import pickle
 
-# from EMD_evaluation.emd_module import emd_eval
-
+####################
+#                  #
+#    Statistics    #
+#                  #
+####################
 idx_has_been_used = []
 one_nn = {}
 one_nna = {}
@@ -249,7 +251,6 @@ for _ in tqdm.tqdm(range(max_len)):
 
         # For axis_norm model
         if args.axis_norm:
-            TOPK = 5
             pred_xy, pred_z, pred_radius = pred_xyz
             pred_xy_topk_bins = pred_xy.topk(TOPK, dim=-1)[1]  # (B, TOPK)
             # pred_z_topk_bins = pred_z.topk(TOPK, dim=-1)[1]  # (B, TOPK)
@@ -318,6 +319,11 @@ for _ in tqdm.tqdm(range(max_len)):
             objs.append(obj)
 print("Done!")
 
+################
+#              #
+#    Saving    #
+#              #
+################
 # create new folder to store the results
 with open(osp.join(PROJECT_DIR, "objs.pkl"), "wb") as f:
     pickle.dump(objs, f)
