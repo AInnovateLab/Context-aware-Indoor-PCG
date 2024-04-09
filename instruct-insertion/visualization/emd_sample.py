@@ -31,15 +31,15 @@ device = accelerator.device
 #                              #
 ################################
 # load existing args
-PROJECT_TOP_DIR = "../../tmp_link_saves"
+PROJECT_TOP_DIR = "/home/hyx/workspace_znk/pisa/runs/240402_anorm_b32_2048_fps_800k_sr3d_sim/"
 # NOTE: Modify here.
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-09-21_18-18-07",
-#     "ckpt_800000",
-# )
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "default")
+CHECKPOINT_DIR = osp.join(
+    PROJECT_DIR,
+    "checkpoints",
+    "2024-04-02_15-03-26",
+    "ckpt_740000",
+)
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
@@ -88,9 +88,9 @@ with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
 
 # load data
 # NOTE: Modify here.
-SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global.pkl"
+SCANNET_PKL_FILE = "/home/hyx/workspace_znk/pisa/datasets/scannet_instruct_global.pkl"
 # SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
-REFERIT_CSV_FILE = "../../datasets/nr3d/nr3d_generative_20230825_final.csv"
+REFERIT_CSV_FILE = "/home/hyx/workspace_znk/pisa/datasets/nr3d_generative_20230825.csv"
 all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(SCANNET_PKL_FILE)
 referit_data = load_referential_data(args, args.referit3D_file, scans_split)
 # Prepare data & compute auxiliary meta-information.
@@ -150,7 +150,8 @@ point_e = point_e.to(device).eval()
 
 # load model and checkpoints
 # if args.mode == "train":
-mvt3dvg = torch.compile(mvt3dvg)
+# mvt3dvg = torch.compile(mvt3dvg)
+
 mvt3dvg, point_e = accelerator.prepare(mvt3dvg, point_e)
 accelerator.load_state(CHECKPOINT_DIR)
 
@@ -205,7 +206,7 @@ for _ in tqdm.tqdm(range(max_len)):
     batch4mvt.pop("text")
     with torch.no_grad():
         if not args.point_e_only:
-            ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz = mvt3dvg(batch4mvt)
+            ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz, _ = mvt3dvg(batch4mvt)
         else:
             ctx_embeds = torch.zeros((B, C), device=device)
             RF3D_LOSS = torch.zeros(1, device=device)
