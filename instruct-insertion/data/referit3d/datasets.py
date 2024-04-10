@@ -248,6 +248,7 @@ def make_data_loaders(
     scans: Dict[str, ScannetScan],
     mean_rgb: np.ndarray,
     tokenizer: PreTrainedTokenizer,
+    nr3d_only: bool = False,
 ):
     data_loaders: Dict[Literal["train", "test", "test_small"], DataLoader] = dict()
 
@@ -279,6 +280,9 @@ def make_data_loaders(
         mask = referit_data[f"is_{split}"]
 
         d_set = referit_data[mask]
+        if nr3d_only:
+            mask_nr3d = (referit_data["dataset"] == "nr3d")
+            d_set = d_set[mask_nr3d]
         d_set.reset_index(drop=True, inplace=True)
 
         is_training = split == "train"

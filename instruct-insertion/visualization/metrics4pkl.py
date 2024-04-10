@@ -33,7 +33,7 @@ from openpoints.cpp.emd.emd import EarthMoverDistanceFunction
 #     }
 # ]
 
-PROJECT_TOP_DIR = f"{osp.dirname(__file__)}/../../tmp_link_saves"
+PROJECT_TOP_DIR = f"/home/hyx/workspace_znk/pisa/runs/240324_anorm_b32_fps_320k_fix_bak"
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4_sr3d")
 # CHECKPOINT_DIR = osp.join(
 #     PROJECT_DIR,
@@ -41,15 +41,15 @@ PROJECT_TOP_DIR = f"{osp.dirname(__file__)}/../../tmp_link_saves"
 #     "2023-09-21_18-18-07",
 #     "ckpt_800000",
 # )
-PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
+PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "default")
 CHECKPOINT_DIR = osp.join(
     PROJECT_DIR,
     "checkpoints",
-    "2023-10-12_15-42-52",
-    "ckpt_160000",
+    "2024-03-24_12-57-35",
+    "ckpt_320000",
 )
 # SCANNET_PKL_FILE = f"{osp.dirname(__file__)}/../../datasets/scannet/instruct/global.pkl"
-SCANNET_PKL_FILE = f"{osp.dirname(__file__)}/../../datasets/scannet/instruct/global_small.pkl"
+SCANNET_PKL_FILE = f"/home/hyx/workspace_znk/pisa/datasets/scannet_instruct_global.pkl"
 
 
 @torch.no_grad()
@@ -356,7 +356,7 @@ def compute_acc(
     point_e = point_e.to(device=device).eval()
     # load model and checkpoints
     # if args.mode == "train":
-    mvt3dvg = torch.compile(mvt3dvg)
+    # mvt3dvg = torch.compile(mvt3dvg)
     mvt3dvg, point_e = accelerator.prepare(mvt3dvg, point_e)
     accelerator.load_state(CHECKPOINT_DIR)
 

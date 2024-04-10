@@ -31,14 +31,14 @@ device = accelerator.device
 #                              #
 ################################
 # load existing args
-PROJECT_TOP_DIR = "/home/hyx/workspace_znk/pisa/runs/240402_anorm_b32_2048_fps_800k_sr3d_sim/"
+PROJECT_TOP_DIR = "/home/hyx/workspace_znk/pisa/runs/240324_anorm_b32_fps_320k_fix_bak"
 # NOTE: Modify here.
 PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "default")
 CHECKPOINT_DIR = osp.join(
     PROJECT_DIR,
     "checkpoints",
-    "2024-04-02_15-03-26",
-    "ckpt_740000",
+    "2024-03-24_12-57-35",
+    "ckpt_320000",
 )
 # PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_rr4")
 # CHECKPOINT_DIR = osp.join(
@@ -46,41 +46,6 @@ CHECKPOINT_DIR = osp.join(
 #     "checkpoints",
 #     "2023-09-18_14-52-06",
 #     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-09-16_16-54-54",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps_axisnorm_16bin")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-22_15-38-56",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "fps")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-12_15-42-52",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "baseline")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-21_14-18-59",
-#     "ckpt_160000",
-# )
-# PROJECT_DIR = osp.join(PROJECT_TOP_DIR, "point_e_only")
-# CHECKPOINT_DIR = osp.join(
-#     PROJECT_DIR,
-#     "checkpoints",
-#     "2023-10-25_16-29-07",
-# "ckpt_160000",
 # )
 
 with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
@@ -90,15 +55,16 @@ with open(osp.join(PROJECT_DIR, "config.json.txt"), "r") as f:
 # NOTE: Modify here.
 SCANNET_PKL_FILE = "/home/hyx/workspace_znk/pisa/datasets/scannet_instruct_global.pkl"
 # SCANNET_PKL_FILE = "../../datasets/scannet/instruct/global_small.pkl"
-REFERIT_CSV_FILE = "/home/hyx/workspace_znk/pisa/datasets/nr3d_generative_20230825.csv"
+# REFERIT_CSV_FILE = "/home/hyx/workspace_znk/pisa/datasets/nr3d_generative_20230825.csv"
+REFERIT_CSV_FILE = "/home/hyx/workspace_znk/pisa/datasets/sr3d+_generative_20230918.csv"
 all_scans_in_dict, scans_split, class_to_idx = load_scan_related_data(SCANNET_PKL_FILE)
 referit_data = load_referential_data(args, args.referit3D_file, scans_split)
 # Prepare data & compute auxiliary meta-information.
 all_scans_in_dict = trim_scans_per_referit3d_data_(referit_data, all_scans_in_dict)
 mean_rgb = compute_auxiliary_data(referit_data, all_scans_in_dict)
 
-MAX_SAMPLE_LEN = 4000  # Max number of samples to generate.
-DATASET_TYPE: Literal["train", "test"] = "test"  # "train" or "test"
+MAX_SAMPLE_LEN = 3500  # Max number of samples to generate.
+DATASET_TYPE: Literal["train", "test"] = "train"  # "train" or "test"
 TOPK = 5  # Top-k for axis_norm model
 
 ###############
@@ -127,6 +93,7 @@ data_loaders = make_data_loaders(
     scans=all_scans_in_dict,
     mean_rgb=mean_rgb,
     tokenizer=tokenizer,
+    nr3d_only=(DATASET_TYPE == "train"),
 )
 
 from models.point_e_model.diffusion.configs import DIFFUSION_CONFIGS, diffusion_from_config
@@ -188,6 +155,7 @@ cls_top5_correct_for_each_class = {}
 
 emd = earth_mover_distance()
 
+# NOTE: The final len of data is: batch_size * max_len
 max_len = min(len(data_loaders[DATASET_TYPE]), MAX_SAMPLE_LEN)
 it = iter(data_loaders[DATASET_TYPE])
 # Reverse to get idx_to_class
@@ -326,7 +294,8 @@ print("Done!")
 #              #
 ################
 # create new folder to store the results
-with open(osp.join(PROJECT_DIR, "objs.pkl"), "wb") as f:
+# with open(osp.join(PROJECT_DIR, "objs.pkl"), "wb") as f:
+with open(osp.join(PROJECT_DIR, "objs_train.pkl"), "wb") as f:
     pickle.dump(objs, f)
 print("Save success!")
 
