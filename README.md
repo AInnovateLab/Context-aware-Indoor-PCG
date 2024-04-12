@@ -1,6 +1,7 @@
-# PISA: Point Cloud-based Instructed Scene Augmentation
+# Context-aware Indoor PCG
 
-Official implementation of the paper "[](TODO)".
+Official implementation of the paper "[Context-Aware Indoor Point Cloud Object Generation through
+User Instructions]".
 
 ## Clone Repo
 
@@ -26,8 +27,8 @@ Check [Dataset](datasets/README.md) for more details.
 ## Setup
 Create environment:
 ```shell
-conda create -n pisa python=3.9
-conda activate pisa
+conda create -n pcg python=3.9
+conda activate pcg
 conda install -c conda-forge cudatoolkit-dev=11.7
 pip install -r requirements.txt
 ```
@@ -39,20 +40,20 @@ accelerate config
 
 Compile modules for EMD-based metrics and PointNet:
 ```shell
-pushd PISA/openpoints/cpp/chamfer_dist; python setup.py install; popd
-pushd PISA/openpoints/cpp/emd; python setup.py install; popd
-pushd PISA/openpoints/cpp/pointnet2_batch; python setup.py install; popd
+pushd instruct-insertion/openpoints/cpp/chamfer_dist; python setup.py install; popd
+pushd instruct-insertion/openpoints/cpp/emd; python setup.py install; popd
+pushd instruct-insertion/openpoints/cpp/pointnet2_batch; python setup.py install; popd
 ```
 
 ## Train & Evaluation
 Train on Nr3D:
 ```shell
-pushd PISA/scripts; bash train.sh; popd
+pushd instruct-insertion/scripts; bash train.sh; popd
 ```
 
 Train on the combination of Sr3D and Nr3D:
 ```shell
-pushd PISA/scripts; bash train_sr3d.sh; popd
+pushd instruct-insertion/scripts; bash train_sr3d.sh; popd
 ```
 
 If you need to turn on evaluation mode, please add `--mode test` to the end of the training script.
@@ -65,7 +66,7 @@ pip install jupyterlab
 pip install trame==2.5 jupyter-server-proxy
 ```
 
-Check [Visualization](PISA/visualization/README.md) for details.
+Check [Visualization](instruct-insertion/visualization/README.md) for details.
 
 ## FAQ
 
