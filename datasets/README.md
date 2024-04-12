@@ -11,7 +11,7 @@ datasets
 │   └── nr3d_sa.csv
 ├── README.md
 ├── scannet -> /PATH/TO/SCANNET
-│   ├── PISA
+│   ├── instruct-insertion
 │   ├── scannetv2-labels.combined.tsv
 │   ├── scans
 │   ├── scans_test
@@ -23,9 +23,9 @@ datasets
 
 ## Download ScanNet data
 
-First, go to [ScanNet Repo](https://github.com/ScanNet/ScanNet) and get their downloading script as `PISA/scripts/download_scannet.py`. We did not include the complete script in our repo because ScanNet is released under their Term of Use, not MIT license.
+First, go to [ScanNet Repo](https://github.com/ScanNet/ScanNet) and get their downloading script as `instruct-insertion/scripts/download_scannet.py`. We did not include the complete script in our repo because ScanNet is released under their Term of Use, not MIT license.
 
-We modified the script to remove unnecessary data. Make sure the following lines in `PISA/scripts/download_scannet.py`:
+We modified the script to remove unnecessary data. Make sure the following lines in `instruct-insertion/scripts/download_scannet.py`:
 ```python
 FILETYPES = [
     ".aggregation.json",
@@ -47,15 +47,15 @@ FILETYPES = [
 Since the [ScanNet](http://www.scan-net.org/) dataset is large, we recommend you to create `datasets/scannet` as a soft link to somewhere in the HDD before running our downloading script.
 
 ```shell
-python PISA/scripts/download_scannet.py -o datasets/scannet
+python instruct-insertion/scripts/download_scannet.py -o datasets/scannet
 ```
 
 After the ScanNet is downloaded, preprocess the data by running:
 ```shell
-bash PISA/scripts/preprocess_scannet_data.sh
+bash instruct-insertion/scripts/preprocess_scannet_data.sh
 ```
 
-## PISA data
+## Context-aware Indoor PCG data
 
 ### Donwload from Google Drive
 
