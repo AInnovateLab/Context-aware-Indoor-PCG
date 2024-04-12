@@ -1,6 +1,6 @@
 # PISA: Point Cloud-based Instructed Scene Augmentation
 
-Official implementation of the paper "[PISA: Point Cloud-based Instructed Scene Augmentation](TODO)".
+Official implementation of the paper "[](TODO)".
 
 ## Clone Repo
 

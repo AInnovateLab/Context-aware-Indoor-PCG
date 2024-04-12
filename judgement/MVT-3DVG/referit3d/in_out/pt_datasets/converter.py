@@ -120,7 +120,11 @@ class Converter:
             elif self.hook_type_fn_name == "train_w_augment":
                 ret.update(
                     getitem_train_w_augment(
-                        self, hook_entry=hook_entry, box_info=box_info, samples=samples, target_pos=target_pos
+                        self,
+                        hook_entry=hook_entry,
+                        box_info=box_info,
+                        samples=samples,
+                        target_pos=target_pos,
                     )
                 )
             else:
@@ -347,14 +351,6 @@ def getitem_train_w_augment(
     samples: List[np.ndarray],
     target_pos: int,
 ):
-    # hook_xyz = (
-    #     hook_entry["objs"][0][..., :3] * hook_entry["radius"] + hook_entry["pred_xyz_raw"][0]
-    # )  # [P, 3]
-    # return {
-    #     "hook_xyz": hook_xyz,
-    #     "hook_rgb": hook_entry["objs"][0][..., 3:6],
-    # }
-
     hook_shape = hook_entry["objs"][0][..., :3]  # [P, 3]
     GT_loc = box_info[target_pos, :3]  # [3,]
     radius = box_info[target_pos, 3] ** (1 / 3)
@@ -364,9 +360,3 @@ def getitem_train_w_augment(
         "hook_xyz": hook_xyz,
         "hook_rgb": hook_entry["objs"][0][..., 3:6],
     }
-
-    # target_sample = samples[target_pos]
-    # return {
-    #     "hook_xyz": target_sample[..., :3],
-    #     "hook_rgb": target_sample[..., 3:6],
-    # }

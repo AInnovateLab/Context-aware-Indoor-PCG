@@ -19,7 +19,6 @@ from data.referit3d.in_out.neural_net_oriented import (
     load_scan_related_data,
     trim_scans_per_referit3d_data_,
 )
-from openpoints.cpp.emd.emd import earth_mover_distance
 from scripts.train_utils import move_batch_to_device_
 
 accelerator = accelerate.Accelerator()
@@ -140,21 +139,6 @@ sampler = PointCloudSampler(
 )
 
 
-####################
-#                  #
-#    Statistics    #
-#                  #
-####################
-idx_has_been_used = []
-one_nn = {}
-one_nna = {}
-emd_dis = {}
-num_of_obj_in_classes = {}
-cls_top1_correct_for_each_class = {}
-cls_top5_correct_for_each_class = {}
-
-emd = earth_mover_distance()
-
 # NOTE: The final len of data is: batch_size * max_len
 max_len = min(len(data_loaders[DATASET_TYPE]), MAX_SAMPLE_LEN)
 it = iter(data_loaders[DATASET_TYPE])
@@ -174,7 +158,9 @@ for _ in tqdm.tqdm(range(max_len)):
     batch4mvt.pop("text")
     with torch.no_grad():
         if not args.point_e_only:
-            ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz, _ = mvt3dvg(batch4mvt)
+            ctx_embeds, LOSS, CLASS_LOGITS, LANG_LOGITS, LOCATE_PREDS, pred_xyz, _ = mvt3dvg(
+                batch4mvt
+            )
         else:
             ctx_embeds = torch.zeros((B, C), device=device)
             RF3D_LOSS = torch.zeros(1, device=device)

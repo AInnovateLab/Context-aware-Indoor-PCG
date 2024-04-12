@@ -4,8 +4,8 @@ export PATH_OF_SCANNET_FILE="/root/blueprint/PISA_dev/datasets/scannet_instruct_
 export PATH_OF_REFERIT3D_FILE="/root/blueprint/PISA_dev/datasets/nr3d_generative_20230825.csv"
 export PATH_OF_BERT="bert-base-uncased"
 export CUDA_VISIBLE_DEVICES=0,1,3
-export HTTP_PROXY="http://localhost:7890"
-export HTTPS_PROXY="http://localhost:7890"
+# export HTTP_PROXY="http://localhost:7890"
+# export HTTPS_PROXY="http://localhost:7890"
 
 python train.py \
     --scannet-file $PATH_OF_SCANNET_FILE \
