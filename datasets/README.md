@@ -59,7 +59,7 @@ bash instruct-insertion/scripts/preprocess_scannet_data.sh
 
 ### Donwload from Google Drive
 
-The `Sr3D-SA` and `Nr3D-SA` datasets can be downloaded from the [Anonymous Google Drive](https://dl.orangedox.com/SgTDvP1fLx5PCvNAFC).
+The `Sr3D-SA` and `Nr3D-SA` datasets can be downloaded from the [Google Drive](https://drive.google.com/drive/folders/1fxOKLuDWZUy_b6ue2hh3uPCW-vZkIlRi?usp=sharing).
 
 Put them under `datasets/sr3d` and `datasets/nr3d` respectively.
 
