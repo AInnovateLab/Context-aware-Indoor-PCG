@@ -3,10 +3,10 @@ from functools import partial
 from typing import Literal, Optional
 
 import numpy as np
-from converter import Converter
 from torch.utils.data import Dataset
 from transformers import DistilBertModel, DistilBertTokenizer
 
+from .converter import Converter
 from ...data_generation.nr3d import decode_stimulus_string
 
 # the following will be shared on other datasets too if not, they should become part of the ListeningDataset
@@ -69,7 +69,7 @@ class ListeningDataset(Dataset):
         return len(self.references)
 
     def get_reference_data(self, index):
-        ref = self.references.loc[index]
+        ref = self.references.iloc[index]
         scan_id = ref["scan_id"]
         scan = self.scans[ref["scan_id"]]
         target = scan.three_d_objects[ref["target_id"]]
@@ -148,7 +148,7 @@ class ListeningDataset(Dataset):
 
         # NOTE: HOOK here
         if self.converter.need_hook_getitem():
-            hook_results = self.converter.hook_getitem(box_info, samples, target_pos)
+            hook_results = self.converter.hook_getitem(stimulus_id, box_info, samples, target_pos)
             # `hook_xyz` should be Point-clouds in the original coords.
             hook_xyz, hook_rgb = hook_results["hook_xyz"], hook_results["hook_rgb"]
             assert hook_xyz.shape[0] == hook_rgb.shape[0]

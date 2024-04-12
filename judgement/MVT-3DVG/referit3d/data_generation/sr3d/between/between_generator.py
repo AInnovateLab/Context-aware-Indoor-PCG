@@ -4,7 +4,8 @@ import yaml
 from shapely.geometry import MultiPoint
 
 from ....in_out.three_d_object import ThreeDObject
-from .. import Reference, ReferenceGenerator
+from referit3d.data_generation.sr3d.reference import Reference
+from referit3d.data_generation.sr3d.reference_generator import ReferenceGenerator
 
 
 class BetweenGenerator(ReferenceGenerator):

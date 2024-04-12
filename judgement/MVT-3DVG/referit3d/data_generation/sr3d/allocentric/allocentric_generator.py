@@ -5,7 +5,9 @@ import numpy as np
 import yaml
 from shapely.geometry import MultiPoint, Point
 
-from .. import Reference, ReferenceGenerator
+# from .. import Reference, ReferenceGenerator
+from referit3d.data_generation.sr3d.reference import Reference
+from referit3d.data_generation.sr3d.reference_generator import ReferenceGenerator
 
 
 @unique

@@ -21,6 +21,10 @@ class Converter:
     ):
         self.hook_type = hook_type
         self.hook_type_fn_name = hook_type_fn_name
+        if hook_type != False:
+            with open(data_path, "rb") as fp:
+                self.hook_data = pickle.load(fp)
+
         if hook_type == "sa":
             # load the hooked data
             assert self.hook_type_fn_name is not None, "Hook type function name is required for SA."
@@ -38,15 +42,13 @@ class Converter:
             #     }
             # ]
             pass
-        elif hook_type == "po":
+        elif hook_type in ["po", False]:
             pass
         elif hook_type == "train":
-            pass
+            random.seed(42)
+            self.hook_data = random.choices(self.hook_data, k=len(self.hook_data) // 2)
         else:
             raise ValueError(f"Hook type {hook_type} not found.")
-
-        with open(data_path, "rb") as fp:
-            self.hook_data = pickle.load(fp)
 
     def modify_dataset(
         self,
@@ -80,7 +82,14 @@ class Converter:
     ):
         # find hook_entry
         hook_entries = seq(self.hook_data).filter(lambda x: x["stimulus_id"] == stimulus_id).list()
-        hook_entry = random.choice(hook_entries)
+        if len(hook_entries) == 0:
+            target_sample = samples[target_pos]
+            return {
+                "hook_xyz": target_sample[..., :3],
+                "hook_rgb": target_sample[..., 3:6],
+            }
+        # hook_entry = random.choice(hook_entries)
+        hook_entry = hook_entries[0]
 
         ret = dict()
         if self.hook_type == False:
@@ -111,7 +120,7 @@ class Converter:
             elif self.hook_type_fn_name == "train_w_augment":
                 ret.update(
                     getitem_train_w_augment(
-                        self, box_info=box_info, samples=samples, target_pos=target_pos
+                        self, hook_entry=hook_entry, box_info=box_info, samples=samples, target_pos=target_pos
                     )
                 )
             else:
@@ -319,7 +328,7 @@ def dataset_train_wo_augment(
     data = converter.hook_data
     assert data is not None
     stimulus_ids = [datum["stimulus_id"] for datum in data]
-    references = references[references["stimulus_id"].isin(stimulus_ids)]
+    references = references[~references["stimulus_id"].isin(stimulus_ids)]
     return references, scans
 
 
@@ -338,10 +347,26 @@ def getitem_train_w_augment(
     samples: List[np.ndarray],
     target_pos: int,
 ):
-    hook_xyz = (
-        hook_entry["objs"][0][..., :3] * hook_entry["radius"] + hook_entry["pred_xyz_raw"][0]
-    )  # [P, 3]
+    # hook_xyz = (
+    #     hook_entry["objs"][0][..., :3] * hook_entry["radius"] + hook_entry["pred_xyz_raw"][0]
+    # )  # [P, 3]
+    # return {
+    #     "hook_xyz": hook_xyz,
+    #     "hook_rgb": hook_entry["objs"][0][..., 3:6],
+    # }
+
+    hook_shape = hook_entry["objs"][0][..., :3]  # [P, 3]
+    GT_loc = box_info[target_pos, :3]  # [3,]
+    radius = box_info[target_pos, 3] ** (1 / 3)
+    hook_xyz = hook_shape * radius + GT_loc[None]  # [P, 3]
+    # hook_xyz = hook_shape * hook_entry["radius"] + GT_loc[None]  # [P, 3]
     return {
         "hook_xyz": hook_xyz,
         "hook_rgb": hook_entry["objs"][0][..., 3:6],
     }
+
+    # target_sample = samples[target_pos]
+    # return {
+    #     "hook_xyz": target_sample[..., :3],
+    #     "hook_rgb": target_sample[..., 3:6],
+    # }

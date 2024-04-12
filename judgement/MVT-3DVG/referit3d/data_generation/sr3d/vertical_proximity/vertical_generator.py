@@ -2,7 +2,8 @@ import json
 
 import yaml
 
-from .. import Reference, ReferenceGenerator
+from referit3d.data_generation.sr3d.reference import Reference
+from referit3d.data_generation.sr3d.reference_generator import ReferenceGenerator
 
 
 class VerticalProximityGenerator(ReferenceGenerator):
