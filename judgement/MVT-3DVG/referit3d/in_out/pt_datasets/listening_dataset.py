@@ -6,8 +6,8 @@ import numpy as np
 from torch.utils.data import Dataset
 from transformers import DistilBertModel, DistilBertTokenizer
 
-from .converter import Converter
 from ...data_generation.nr3d import decode_stimulus_string
+from .converter import Converter
 
 # the following will be shared on other datasets too if not, they should become part of the ListeningDataset
 # maybe make SegmentedScanDataset with only static functions and then inherit.
@@ -37,7 +37,7 @@ class ListeningDataset(Dataset):
         visualization=False,
         hook_type: Literal[False, "sa", "po", "train"] = False,
         hook_type_fn_name: Optional[str] = None,
-        hook_data_path="/home/link/github/Instruct-Replacement/tmp_lyy_saves/fps_axisnorm_rr4_sr3d/objs.pkl",
+        hook_data_path="./objs.pkl",
     ):
         self.references = references
         self.scans = scans
