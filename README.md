@@ -1,7 +1,6 @@
 # Context-aware Indoor PCG
 
-Official implementation of the paper "[Context-Aware Indoor Point Cloud Object Generation through
-User Instructions]".
+Official implementation of the paper "[Context-Aware Indoor Point Cloud Object Generation through User Instructions](https://arxiv.org/abs/2311.16501)".
 
 ## Clone Repo
 
