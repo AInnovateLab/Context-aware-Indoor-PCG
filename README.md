@@ -1,6 +1,9 @@
 # Context-aware Indoor PCG
 
-Official implementation of the paper "[Context-Aware Indoor Point Cloud Object Generation through User Instructions](https://arxiv.org/abs/2311.16501)".
+[![arXiv](https://img.shields.io/badge/arXiv-2311.16501-brightgreen.svg)](https://arxiv.org/abs/2311.16501)
+[![star badge](https://img.shields.io/github/stars/AInnovateLab/Context-aware-Indoor-PCG?style=social)](https://github.com/AInnovateLab/Context-aware-Indoor-PCG)
+
+Official implementation of the ACM MM'24 paper "[Context-Aware Indoor Point Cloud Object Generation through User Instructions](https://arxiv.org/abs/2311.16501)".
 
 ## Clone Repo
 
